@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pyMIND: Multimodal Integrated Neurocritical Data</title>
+  <link rel="stylesheet" href="py_style.css" />
+</head>
+<body>
+  <header>
+    <h1>pyMIND</h1>
+    <h2>Multimodal Integrated Neurocritical Data — v.Beta</h2>
+  </header>
+
+  <main>
+    <!-- Sidebar: now persistent with dynamic "Back" labels -->
+    <aside class="sidebar">
+      <button class="btn connect" id="connectBtn">Connect</button>
+      <button class="btn visualize" id="visualizeBtn">Visualize</button>
+      <button class="btn disconnect" id="disconnectBtn">Disconnect</button>
+      <div class="brown-logo">
+        <img src="logo.png" alt="Brown University Logo">
+      </div>
+    </aside>
+
+    <!-- ===== Right-hand panels (unchanged from before) ===== -->
+
+    <!-- Main Menu Placeholder -->
+    <section id="mainPanel" class="main-panel active">
+      <div class="welcome-container">
+        <p>Select a mode to begin.</p>
+      </div>
+    </section>
+
+    <!-- Connect Screen -->
+    <section id="connectPanel" class="main-panel hidden">
+      <div class="directory-select">
+        <label for="saveDir">Please choose a save directory</label>
+        <input type="text" id="saveDir" placeholder="Save Directory Location..." />
+        <button class="browse">...</button>
+      </div>
+
+      <div class="modules">
+        <div class="module">
+          <h3>EEG</h3>
+          <select><option>BrainVision acti</option></select>
+          <select><option>TCP/IP</option></select>
+          <select><option>HDF5</option></select>
+          <button class="btn-small">Connect</button>
+        </div>
+
+        <div class="module">
+          <h3>Vitals</h3>
+          <select><option>Philips Intellivue</option></select>
+          <select><option>Serial</option></select>
+          <select><option>HDF5</option></select>
+          <label class="waveform-label">Request Waveforms (5 Max)</label>
+          <div class="waveform-list">
+            <ul>
+              <li>Arterial Blood Pressure (ABP)</li>
+              <li>PLETH wave label</li>
+              <li>Impedance RESP wave</li>
+              <li>ECG Lead I</li>
+              <li>ECG Lead II</li>
+              <li>ECG Lead III</li>
+              <li>ECG Lead AVR</li>
+              <li>Intracranial Pressure (ICP)</li>
+              <li>Intracranial Pressure 2 (IC2)</li>
+            </ul>
+          </div>
+          <button class="btn-small">Connect</button>
+        </div>
+
+        <div class="module disabled">
+          <h3>NIRS</h3>
+          <p>Coming Soon</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Visualize Screen -->
+    <section id="visualizePanel" class="main-panel hidden">
+      <div class="tab-buttons">
+        <button class="tab active">Real Time</button>
+        <button class="tab">Trends</button>
+      </div>
+
+      <div class="directory-select">
+        <input type="text" placeholder="Save Directory Location..." />
+        <button class="browse">...</button>
+      </div>
+
+      <div class="visualize-panels">
+        <div class="panel">
+          <h3>EEG Trends</h3>
+          <div class="blackbox">Select files to view...</div>
+          <div class="btn-group">
+            <button class="btn-small">Raw Traces</button>
+            <button class="btn-small">Spectrogram</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Vitals Trends</h3>
+          <div class="blackbox">Select files to view...</div>
+          <div class="btn-group">
+            <button class="btn-small">Trends</button>
+          </div>
+        </div>
+
+        <div class="timestamp-table">
+          <div class="table-header">
+            <span>Time Stamp</span>
+            <span>Comment</span>
+          </div>
+          <div class="table-body"></div>
+          <div class="table-actions">
+            <button class="btn-small">+</button>
+            <button class="btn-small">Save</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Disconnect Screen -->
+    <section id="disconnectPanel" class="main-panel hidden">
+      <div class="modules">
+        <div class="module"><h3>EEG</h3><button class="btn-small">Disconnect</button></div>
+        <div class="module"><h3>Vitals</h3><button class="btn-small">Disconnect</button></div>
+        <div class="module disabled"><h3>NIRS</h3><p>Coming Soon</p></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- JS toggling logic -->
+  <script>
+    const buttons = {
+      connect: document.getElementById("connectBtn"),
+      visualize: document.getElementById("visualizeBtn"),
+      disconnect: document.getElementById("disconnectBtn"),
+    };
+
+    const panels = {
+      main: document.getElementById("mainPanel"),
+      connect: document.getElementById("connectPanel"),
+      visualize: document.getElementById("visualizePanel"),
+      disconnect: document.getElementById("disconnectPanel"),
+    };
+
+    let active = "main";
+
+    function showPanel(target) {
+      Object.values(panels).forEach(p => p.classList.add("hidden"));
+      panels[target].classList.remove("hidden");
+
+      buttons.connect.textContent = "Connect";
+      buttons.visualize.textContent = "Visualize";
+      buttons.disconnect.textContent = "Disconnect";
+
+      if (target !== "main") buttons[target].textContent = "← Back";
+      active = target;
+    }
+
+    buttons.connect.onclick = () =>
+      showPanel(active === "connect" ? "main" : "connect");
+    buttons.visualize.onclick = () =>
+      showPanel(active === "visualize" ? "main" : "visualize");
+    buttons.disconnect.onclick = () =>
+      showPanel(active === "disconnect" ? "main" : "disconnect");
+  </script>
+</body>
+</html>
