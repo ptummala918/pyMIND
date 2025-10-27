@@ -83,6 +83,7 @@
       <div class="tab-buttons">
         <button class="tab active">Real Time</button>
         <button class="tab">Trends</button>
+        <button class="tab" id="showGraphsBtn">Test Graphs</button>
       </div>
 
       <div class="directory-select">
@@ -167,6 +168,17 @@
       showPanel(active === "visualize" ? "main" : "visualize");
     buttons.disconnect.onclick = () =>
       showPanel(active === "disconnect" ? "main" : "disconnect");
+
+    document.getElementById("showGraphsBtn").onclick = () => {
+      const base = "http://127.0.0.1:8000";
+      const urls = [
+        "/api/graphs/eeg/live",
+        "/api/graphs/eeg/trend",
+        "/api/vitals/live",
+        "/api/vitals/trend",
+      ];
+      urls.forEach(path => window.open(base + path, "_blank"));
+    };
   </script>
 </body>
 </html>
