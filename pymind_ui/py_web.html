@@ -23,8 +23,6 @@
       </div>
     </aside>
 
-    <!-- ===== Right-hand panels (unchanged from before) ===== -->
-
     <!-- Main Menu Placeholder -->
     <section id="mainPanel" class="main-panel active">
       <div class="welcome-container">
@@ -91,10 +89,34 @@
         <button class="browse">...</button>
       </div>
 
+      <div class="file-upload-section">
+        <div class="file-upload-group">
+          <label for="eegFile">EEG HDF5 File:</label>
+          <input type="file" id="eegFile" accept=".hdf5,.h5" />
+          <button class="btn-small" id="uploadEEG">Upload</button>
+          <span id="eegStatus" class="upload-status"></span>
+        </div>
+        <div class="file-upload-group">
+          <label for="vitalsWavesFile">Vitals Waves HDF5 File:</label>
+          <input type="file" id="vitalsWavesFile" accept=".hdf5,.h5" />
+          <button class="btn-small" id="uploadVitalsWaves">Upload</button>
+          <span id="vitalsWavesStatus" class="upload-status"></span>
+        </div>
+        <div class="file-upload-group">
+          <label for="vitalsNumericsFile">Vitals Numerics HDF5 File:</label>
+          <input type="file" id="vitalsNumericsFile" accept=".hdf5,.h5" />
+          <button class="btn-small" id="uploadVitalsNumerics">Upload</button>
+          <span id="vitalsNumericsStatus" class="upload-status"></span>
+        </div>
+      </div>
+
       <div class="visualize-panels">
         <div class="panel">
           <h3>EEG Trends</h3>
-          <div class="blackbox">Select files to view...</div>
+          <div class="monitor-container" id="eegBox">
+            <canvas id="eegCanvas"></canvas>
+            <div class="monitor-loading" id="eegLoading">Select files to view...</div>
+          </div>
           <div class="btn-group">
             <button class="btn-small">Raw Traces</button>
             <button class="btn-small">Spectrogram</button>
@@ -102,8 +124,12 @@
         </div>
 
         <div class="panel">
-          <h3>Vitals Trends</h3>
-          <div class="blackbox">Select files to view...</div>
+          <h3>Vitals Monitor</h3>
+          <div class="monitor-container" id="vitalsBox">
+            <canvas id="vitalsCanvas"></canvas>
+            <div class="monitor-loading" id="vitalsLoading">Select files to view...</div>
+            <div id="vitalsImageContainer" style="display: none;"></div>
+          </div>
           <div class="btn-group">
             <button class="btn-small">Trends</button>
           </div>
@@ -149,6 +175,22 @@
     };
 
     let active = "main";
+    let currentView = "realtime"; // "realtime" or "trends"
+    let vitalsTimeOffset = 0.0; // Time offset for scrolling through vitals data
+    let eegTimeOffset = 0.0; // Time offset for scrolling through EEG data
+    let vitalsRefreshInterval = null; // Interval for auto-refreshing vitals
+    let eegRefreshInterval = null; // Interval for auto-refreshing EEG
+    const VITALS_REFRESH_RATE = 1000; // Refresh every 1 second
+    const EEG_REFRESH_RATE = 1000; // Refresh every 1 second
+    const VITALS_SCROLL_STEP = 0.5; // Advance by 0.5 seconds each refresh
+    const EEG_SCROLL_STEP = 0.5; // Advance by 0.5 seconds each refresh
+    
+    // Track uploaded files
+    let uploadedFiles = {
+      eeg: false,
+      vitalsWaves: false,
+      vitalsNumerics: false
+    };
 
     function showPanel(target) {
       Object.values(panels).forEach(p => p.classList.add("hidden"));
@@ -164,20 +206,688 @@
 
     buttons.connect.onclick = () =>
       showPanel(active === "connect" ? "main" : "connect");
-    buttons.visualize.onclick = () =>
-      showPanel(active === "visualize" ? "main" : "visualize");
     buttons.disconnect.onclick = () =>
       showPanel(active === "disconnect" ? "main" : "disconnect");
 
-    document.getElementById("showGraphsBtn").onclick = () => {
+    // Function to stop auto-refresh
+    function stopVitalsAutoRefresh() {
+      if (vitalsRefreshInterval) {
+        clearInterval(vitalsRefreshInterval);
+        vitalsRefreshInterval = null;
+      }
+    }
+
+    // Canvas rendering for vitals monitor
+    const vitalsCanvas = document.getElementById("vitalsCanvas");
+    const vitalsCtx = vitalsCanvas ? vitalsCanvas.getContext("2d") : null;
+    const vitalsLoadingDiv = document.getElementById("vitalsLoading");
+    
+    // Canvas rendering for EEG monitor
+    const eegCanvas = document.getElementById("eegCanvas");
+    const eegCtx = eegCanvas ? eegCanvas.getContext("2d") : null;
+    const eegLoadingDiv = document.getElementById("eegLoading");
+    
+    // Set canvas size for vitals
+    function resizeVitalsCanvas() {
+      if (!vitalsCanvas || !vitalsCtx) return;
+      const container = vitalsCanvas.parentElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      vitalsCanvas.width = rect.width - 32; // Account for padding
+      vitalsCanvas.height = 500;
+    }
+    if (vitalsCanvas) {
+      resizeVitalsCanvas();
+      window.addEventListener('resize', resizeVitalsCanvas);
+    }
+    
+    // Set canvas size for EEG
+    function resizeEEGCanvas() {
+      if (!eegCanvas || !eegCtx) return;
+      const container = eegCanvas.parentElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      eegCanvas.width = rect.width - 32; // Account for padding
+      eegCanvas.height = 400;
+    }
+    if (eegCanvas) {
+      resizeEEGCanvas();
+      window.addEventListener('resize', resizeEEGCanvas);
+    }
+    
+    // Scientific plotting color scheme (white background, crisp lines)
+    const colors = {
+      background: '#ffffff',
+      grid: '#e5e5e5',
+      hr: '#0066cc',
+      spo2: '#009900',
+      rr: '#cc6600',
+      map: '#9900cc',
+      text: '#000000',
+      axis: '#333333',
+      marker: '#cc0000'
+    };
+    
+    // Function to render scientific multi-series chart for vitals
+    function renderVitalsMonitor(data) {
+      if (!vitalsCanvas || !vitalsCtx) return;
+      // Use waveforms_series for plotting
+      const waveformsSeries = data.waveforms_series || {};
+      if (!data || Object.keys(waveformsSeries).length === 0) {
+        if (vitalsLoadingDiv) {
+          vitalsLoadingDiv.textContent = "No vitals data available. Please upload waves file.";
+          vitalsLoadingDiv.classList.remove('hidden');
+        }
+        return;
+      }
+      
+      // Hide loading
+      vitalsLoadingDiv.classList.add('hidden');
+      
+      const width = vitalsCanvas.width;
+      const height = vitalsCanvas.height;
+      const leftPadding = 80;
+      const rightPadding = 40;
+      const topPadding = 40;
+      const bottomPadding = 60;
+      const plotWidth = width - leftPadding - rightPadding;
+      const plotHeight = height - topPadding - bottomPadding;
+      
+      // Clear canvas
+      vitalsCtx.fillStyle = colors.background;
+      vitalsCtx.fillRect(0, 0, width, height);
+      
+      const windowDuration = data.window_duration || 10.0;
+      
+      // Map waveform keys to colors and labels (using waveforms from waves file)
+      const vitalsConfig = {
+        'ecg': { color: colors.hr, label: 'ECG', unit: 'mV', yAxis: 'left' },
+        'abp': { color: colors.map, label: 'ABP', unit: 'mmHg', yAxis: 'right' },
+        'pleth': { color: colors.spo2, label: 'Pleth', unit: 'a.u.', yAxis: 'left' },
+        'resp': { color: colors.rr, label: 'Resp', unit: 'a.u.', yAxis: 'right' }
+      };
+      
+      // Get available waveforms (limit to 3)
+      const availableVitals = [];
+      for (const [key, config] of Object.entries(vitalsConfig)) {
+        if (waveformsSeries[key]) {
+          availableVitals.push({ key, ...config, data: waveformsSeries[key] });
+        }
+      }
+      
+      if (availableVitals.length === 0) return;
+      
+      // Limit to 3 vitals max
+      const vitalsToPlot = availableVitals.slice(0, 3);
+      
+      // Calculate y-scales for each vital (waveform)
+      vitalsToPlot.forEach(vital => {
+        const values = vital.data.values;
+        vital.min = Math.min(...values);
+        vital.max = Math.max(...values);
+        vital.range = vital.max - vital.min || 1;
+      });
+      
+      // Draw grid (light gray)
+      vitalsCtx.strokeStyle = colors.grid;
+      vitalsCtx.lineWidth = 1;
+      for (let i = 0; i <= 10; i++) {
+        const x = leftPadding + (plotWidth / 10) * i;
+        vitalsCtx.beginPath();
+        vitalsCtx.moveTo(x, topPadding);
+        vitalsCtx.lineTo(x, topPadding + plotHeight);
+        vitalsCtx.stroke();
+      }
+      for (let i = 0; i <= 5; i++) {
+        const y = topPadding + (plotHeight / 5) * i;
+        vitalsCtx.beginPath();
+        vitalsCtx.moveTo(leftPadding, y);
+        vitalsCtx.lineTo(leftPadding + plotWidth, y);
+        vitalsCtx.stroke();
+      }
+      
+      // Separate vitals by y-axis for labeling
+      const leftVitals = vitalsToPlot.filter(v => v.yAxis === 'left');
+      const rightVitals = vitalsToPlot.filter(v => v.yAxis === 'right');
+      
+      // Draw axes
+      vitalsCtx.strokeStyle = colors.axis;
+      vitalsCtx.lineWidth = 2;
+      // X-axis
+      vitalsCtx.beginPath();
+      vitalsCtx.moveTo(leftPadding, topPadding + plotHeight);
+      vitalsCtx.lineTo(leftPadding + plotWidth, topPadding + plotHeight);
+      vitalsCtx.stroke();
+      // Y-axis (left)
+      vitalsCtx.beginPath();
+      vitalsCtx.moveTo(leftPadding, topPadding);
+      vitalsCtx.lineTo(leftPadding, topPadding + plotHeight);
+      vitalsCtx.stroke();
+      // Y-axis (right)
+      vitalsCtx.beginPath();
+      vitalsCtx.moveTo(leftPadding + plotWidth, topPadding);
+      vitalsCtx.lineTo(leftPadding + plotWidth, topPadding + plotHeight);
+      vitalsCtx.stroke();
+      
+      // Draw each vital series (normalized to 0-1 for proper scaling)
+      vitalsToPlot.forEach((vital, idx) => {
+        const { time, values } = vital.data;
+        if (!time || !values || time.length === 0) return;
+        
+        // Normalize values to 0-1 range
+        const normalizedValues = values.map(v => (v - vital.min) / vital.range);
+        
+        // Draw line (using normalized values, scaled to plot height)
+        vitalsCtx.strokeStyle = vital.color;
+        vitalsCtx.lineWidth = 2;
+        vitalsCtx.beginPath();
+        
+        const yOffset = topPadding + plotHeight;
+        
+        for (let i = 0; i < time.length; i++) {
+          const x = leftPadding + (time[i] / windowDuration) * plotWidth;
+          const y = yOffset - normalizedValues[i] * plotHeight;
+          
+          if (i === 0) {
+            vitalsCtx.moveTo(x, y);
+          } else {
+            vitalsCtx.lineTo(x, y);
+          }
+        }
+        
+        vitalsCtx.stroke();
+        
+        // Draw markers at notable points (detect significant changes)
+        vitalsCtx.fillStyle = colors.marker;
+        for (let i = 1; i < values.length - 1; i++) {
+          const change = Math.abs(normalizedValues[i] - normalizedValues[i-1]);
+          if (change > 0.15) { // Significant change (>15% of range)
+            const x = leftPadding + (time[i] / windowDuration) * plotWidth;
+            const y = yOffset - normalizedValues[i] * plotHeight;
+            vitalsCtx.beginPath();
+            vitalsCtx.arc(x, y, 3, 0, 2 * Math.PI);
+            vitalsCtx.fill();
+          }
+        }
+        
+        // Draw legend
+        vitalsCtx.fillStyle = vital.color;
+        vitalsCtx.font = 'bold 12px sans-serif';
+        vitalsCtx.textAlign = 'left';
+        vitalsCtx.textBaseline = 'middle';
+        vitalsCtx.fillText(`${vital.label} (${vital.unit})`, leftPadding + 5, topPadding - 20 + idx * 20);
+      });
+      
+      // Draw X-axis labels (Time)
+      vitalsCtx.fillStyle = colors.text;
+      vitalsCtx.font = '11px sans-serif';
+      vitalsCtx.textAlign = 'center';
+      vitalsCtx.textBaseline = 'top';
+      for (let i = 0; i <= 10; i++) {
+        const x = leftPadding + (plotWidth / 10) * i;
+        const timeValue = (i / 10) * windowDuration;
+        vitalsCtx.fillText(timeValue.toFixed(1), x, topPadding + plotHeight + 10);
+      }
+      vitalsCtx.fillText('Time (s)', leftPadding + plotWidth / 2, topPadding + plotHeight + 30);
+      
+      // Draw Y-axis labels (left)
+      if (leftVitals.length > 0) {
+        const vital = leftVitals[0];
+        const tickCount = 6;
+        vitalsCtx.fillStyle = colors.text;
+        vitalsCtx.font = '10px sans-serif';
+        vitalsCtx.textAlign = 'right';
+        vitalsCtx.textBaseline = 'middle';
+        for (let i = 0; i <= tickCount; i++) {
+          const value = vital.min + (vital.range / tickCount) * i;
+          const y = topPadding + plotHeight - (i / tickCount) * plotHeight;
+          vitalsCtx.fillText(value.toFixed(0), leftPadding - 10, y);
+        }
+        vitalsCtx.save();
+        vitalsCtx.translate(15, topPadding + plotHeight / 2);
+        vitalsCtx.rotate(-Math.PI / 2);
+        vitalsCtx.textAlign = 'center';
+        vitalsCtx.fillText(`${leftVitals.map(v => v.label).join(', ')}`, 0, 0);
+        vitalsCtx.restore();
+      }
+      
+      // Draw Y-axis labels (right)
+      if (rightVitals.length > 0) {
+        const vital = rightVitals[0];
+        const tickCount = 6;
+        vitalsCtx.fillStyle = colors.text;
+        vitalsCtx.font = '10px sans-serif';
+        vitalsCtx.textAlign = 'left';
+        vitalsCtx.textBaseline = 'middle';
+        for (let i = 0; i <= tickCount; i++) {
+          const value = vital.min + (vital.range / tickCount) * i;
+          const y = topPadding + plotHeight - (i / tickCount) * plotHeight;
+          vitalsCtx.fillText(value.toFixed(0), leftPadding + plotWidth + 10, y);
+        }
+        vitalsCtx.save();
+        vitalsCtx.translate(leftPadding + plotWidth - 15, topPadding + plotHeight / 2);
+        vitalsCtx.rotate(-Math.PI / 2);
+        vitalsCtx.textAlign = 'center';
+        vitalsCtx.fillText(`${rightVitals.map(v => v.label).join(', ')}`, 0, 0);
+        vitalsCtx.restore();
+      }
+    }
+    
+    // Function to render EEG chart
+    function renderEEGMonitor(data) {
+      if (!eegCanvas || !eegCtx) return;
+      if (!data || !data.channels) {
+        if (!data || Object.keys(data.channels || {}).length === 0) {
+          if (eegLoadingDiv) {
+            eegLoadingDiv.textContent = "No EEG data available. Please upload EEG file.";
+            eegLoadingDiv.classList.remove('hidden');
+          }
+          return;
+        }
+      }
+      
+      // Hide loading
+      eegLoadingDiv.classList.add('hidden');
+      
+      const width = eegCanvas.width;
+      const height = eegCanvas.height;
+      const leftPadding = 80;
+      const rightPadding = 40;
+      const topPadding = 40;
+      const bottomPadding = 60;
+      const plotWidth = width - leftPadding - rightPadding;
+      const plotHeight = height - topPadding - bottomPadding;
+      
+      // Clear canvas
+      eegCtx.fillStyle = colors.background;
+      eegCtx.fillRect(0, 0, width, height);
+      
+      const channels = data.channels || {};
+      const windowDuration = data.window_duration || 10.0;
+      const channelKeys = Object.keys(channels);
+      
+      if (channelKeys.length === 0) return;
+      
+      // Limit to 8 channels
+      const channelsToPlot = channelKeys.slice(0, 8);
+      const numChannels = channelsToPlot.length;
+      
+      // Calculate y-scales for each channel
+      const channelConfigs = channelsToPlot.map((key, idx) => {
+        const channelData = channels[key];
+        const values = channelData.values;
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const range = max - min || 1;
+        
+        // Each channel gets its own vertical space
+        const channelHeight = plotHeight / numChannels;
+        const yOffset = topPadding + (idx * channelHeight);
+        
+        return {
+          key,
+          data: channelData,
+          min,
+          max,
+          range,
+          yOffset,
+          channelHeight
+        };
+      });
+      
+      // Draw grid
+      eegCtx.strokeStyle = colors.grid;
+      eegCtx.lineWidth = 1;
+      for (let i = 0; i <= 10; i++) {
+        const x = leftPadding + (plotWidth / 10) * i;
+        eegCtx.beginPath();
+        eegCtx.moveTo(x, topPadding);
+        eegCtx.lineTo(x, topPadding + plotHeight);
+        eegCtx.stroke();
+      }
+      
+      // Draw axes
+      eegCtx.strokeStyle = colors.axis;
+      eegCtx.lineWidth = 2;
+      // X-axis
+      eegCtx.beginPath();
+      eegCtx.moveTo(leftPadding, topPadding + plotHeight);
+      eegCtx.lineTo(leftPadding + plotWidth, topPadding + plotHeight);
+      eegCtx.stroke();
+      // Y-axis
+      eegCtx.beginPath();
+      eegCtx.moveTo(leftPadding, topPadding);
+      eegCtx.lineTo(leftPadding, topPadding + plotHeight);
+      eegCtx.stroke();
+      
+      // Draw each channel
+      const channelColors = ['#0066cc', '#009900', '#cc6600', '#9900cc', '#ff0066', '#00ffff', '#ff9900', '#cc00ff'];
+      channelConfigs.forEach((config, idx) => {
+        const { time, values } = config.data;
+        if (!time || !values || time.length === 0) return;
+        
+        // Normalize values to 0-1 range
+        const normalizedValues = values.map(v => (v - config.min) / config.range);
+        
+        // Draw line
+        eegCtx.strokeStyle = channelColors[idx % channelColors.length];
+        eegCtx.lineWidth = 1.5;
+        eegCtx.beginPath();
+        
+        const yCenter = config.yOffset + config.channelHeight / 2;
+        
+        for (let i = 0; i < time.length; i++) {
+          const x = leftPadding + (time[i] / windowDuration) * plotWidth;
+          // Scale normalized values to channel height, centered
+          const y = yCenter - (normalizedValues[i] - 0.5) * config.channelHeight * 0.8;
+          
+          if (i === 0) {
+            eegCtx.moveTo(x, y);
+          } else {
+            eegCtx.lineTo(x, y);
+          }
+        }
+        
+        eegCtx.stroke();
+        
+        // Draw channel label
+        eegCtx.fillStyle = channelColors[idx % channelColors.length];
+        eegCtx.font = 'bold 11px sans-serif';
+        eegCtx.textAlign = 'left';
+        eegCtx.textBaseline = 'middle';
+        eegCtx.fillText(config.key, leftPadding + 5, config.yOffset + config.channelHeight / 2);
+        
+        // Draw channel separator
+        if (idx < numChannels - 1) {
+          eegCtx.strokeStyle = colors.grid;
+          eegCtx.lineWidth = 1;
+          eegCtx.beginPath();
+          eegCtx.moveTo(leftPadding, config.yOffset + config.channelHeight);
+          eegCtx.lineTo(leftPadding + plotWidth, config.yOffset + config.channelHeight);
+          eegCtx.stroke();
+        }
+      });
+      
+      // Draw X-axis labels (Time)
+      eegCtx.fillStyle = colors.text;
+      eegCtx.font = '11px sans-serif';
+      eegCtx.textAlign = 'center';
+      eegCtx.textBaseline = 'top';
+      for (let i = 0; i <= 10; i++) {
+        const x = leftPadding + (plotWidth / 10) * i;
+        const timeValue = (i / 10) * windowDuration;
+        eegCtx.fillText(timeValue.toFixed(1), x, topPadding + plotHeight + 10);
+      }
+      eegCtx.fillText('Time (s)', leftPadding + plotWidth / 2, topPadding + plotHeight + 30);
+    }
+    
+    // Function to fetch and render vitals data
+    async function updateVitalsMonitor(timeOffset) {
+      try {
+        const base = "http://127.0.0.1:8000";
+        const response = await fetch(`${base}/api/vitals/live/data?time_offset=${timeOffset}`);
+        
+        if (!response.ok) throw new Error('Failed to fetch vitals data');
+        
+        const data = await response.json();
+        renderVitalsMonitor(data);
+      } catch (error) {
+        console.error('Error updating vitals monitor:', error);
+        vitalsLoadingDiv.textContent = `Error: ${error.message}`;
+        vitalsLoadingDiv.classList.remove('hidden');
+      }
+    }
+    
+    // Function to fetch and render EEG data
+    async function updateEEGMonitor(timeOffset) {
+      try {
+        const base = "http://127.0.0.1:8000";
+        const response = await fetch(`${base}/api/graphs/eeg/live/data?time_offset=${timeOffset}`);
+        
+        if (!response.ok) throw new Error('Failed to fetch EEG data');
+        
+        const data = await response.json();
+        renderEEGMonitor(data);
+      } catch (error) {
+        console.error('Error updating EEG monitor:', error);
+        eegLoadingDiv.textContent = `Error: ${error.message}`;
+        eegLoadingDiv.classList.remove('hidden');
+      }
+    }
+    
+    // Function to stop auto-refresh for EEG
+    function stopEEGAutoRefresh() {
+      if (eegRefreshInterval) {
+        clearInterval(eegRefreshInterval);
+        eegRefreshInterval = null;
+      }
+    }
+    
+    // Function to start auto-refresh for EEG monitor
+    function startEEGAutoRefresh() {
+      stopEEGAutoRefresh(); // Clear any existing interval
+      
+      // Reset time offset when starting
+      eegTimeOffset = 0.0;
+      
+      // Load initial frame immediately
+      updateEEGMonitor(eegTimeOffset);
+      eegTimeOffset += EEG_SCROLL_STEP;
+      
+      // Set up interval to refresh EEG display
+      eegRefreshInterval = setInterval(() => {
+        updateEEGMonitor(eegTimeOffset);
+        eegTimeOffset += EEG_SCROLL_STEP;
+        
+        // Reset to beginning after 1 hour (3600 seconds)
+        if (eegTimeOffset > 3600) {
+          eegTimeOffset = 0.0;
+        }
+      }, EEG_REFRESH_RATE);
+    }
+    
+    // Function to start auto-refresh for vitals monitor
+    function startVitalsAutoRefresh() {
+      stopVitalsAutoRefresh(); // Clear any existing interval
+      
+      // Reset time offset when starting
+      vitalsTimeOffset = 0.0;
+      
+      // Load initial frame immediately
+      updateVitalsMonitor(vitalsTimeOffset);
+      vitalsTimeOffset += VITALS_SCROLL_STEP;
+      
+      // Set up interval to refresh vitals display
+      vitalsRefreshInterval = setInterval(() => {
+        updateVitalsMonitor(vitalsTimeOffset);
+        vitalsTimeOffset += VITALS_SCROLL_STEP;
+        
+        // Reset to beginning after 1 hour (3600 seconds)
+        if (vitalsTimeOffset > 3600) {
+          vitalsTimeOffset = 0.0;
+        }
+      }, VITALS_REFRESH_RATE);
+    }
+
+    // Function to update displayed graphs based on current view
+    function updateGraphs() {
       const base = "http://127.0.0.1:8000";
-      const urls = [
-        "/api/graphs/eeg/live",
-        "/api/graphs/eeg/trend",
-        "/api/vitals/live",
-        "/api/vitals/trend",
-      ];
-      urls.forEach(path => window.open(base + path, "_blank"));
+      
+      if (currentView === "realtime") {
+        // Show canvases for real-time view
+        if (eegCanvas) eegCanvas.style.display = 'block';
+        if (vitalsCanvas) vitalsCanvas.style.display = 'block';
+        const imageContainer = document.getElementById("vitalsImageContainer");
+        if (imageContainer) imageContainer.style.display = 'none';
+        
+        // Start auto-refresh for EEG if file is uploaded
+        if (uploadedFiles.eeg) {
+          startEEGAutoRefresh();
+        } else {
+          stopEEGAutoRefresh();
+          eegTimeOffset = 0.0;
+        }
+        
+        // Start auto-refresh for vitals if waves file is uploaded
+        if (uploadedFiles.vitalsWaves) {
+          startVitalsAutoRefresh();
+        } else {
+          stopVitalsAutoRefresh();
+          vitalsTimeOffset = 0.0;
+        }
+      } else {
+        // Stop auto-refresh when switching away from realtime
+        stopEEGAutoRefresh();
+        stopVitalsAutoRefresh();
+        eegTimeOffset = 0.0;
+        vitalsTimeOffset = 0.0;
+        
+        // Show trend images
+        if (eegCanvas) eegCanvas.style.display = 'none';
+        if (vitalsCanvas) vitalsCanvas.style.display = 'none';
+        if (eegLoadingDiv) eegLoadingDiv.style.display = 'none';
+        if (vitalsLoadingDiv) vitalsLoadingDiv.style.display = 'none';
+        
+        // Load EEG trend image
+        const eegBox = document.getElementById("eegBox");
+        if (eegBox) {
+          eegBox.innerHTML = '<div style="text-align: center; padding: 10px; color: #aaa;">Loading...</div>';
+          fetch(base + "/api/graphs/eeg/trend")
+            .then(response => {
+              if (!response.ok) throw new Error('Network response was not ok');
+              return response.blob();
+            })
+            .then(blob => {
+              const imageUrl = URL.createObjectURL(blob);
+              eegBox.innerHTML = `<img src="${imageUrl}" style="max-width: 100%; height: auto; display: block;" alt="EEG Trend Graph" />`;
+            })
+            .catch(error => {
+              eegBox.innerHTML = `<div style="text-align: center; padding: 10px; color: #ff6b6b;">Error loading image: ${error.message}</div>`;
+            });
+        }
+        
+        // Load vitals trend image
+        const imageContainer = document.getElementById("vitalsImageContainer");
+        if (imageContainer) {
+          imageContainer.style.display = 'block';
+          imageContainer.innerHTML = '<div style="text-align: center; padding: 10px; color: #aaa;">Loading...</div>';
+          fetch(base + "/api/vitals/trend")
+            .then(response => {
+              if (!response.ok) throw new Error('Network response was not ok');
+              return response.blob();
+            })
+            .then(blob => {
+              const imageUrl = URL.createObjectURL(blob);
+              imageContainer.innerHTML = `<img src="${imageUrl}" style="max-width: 100%; height: auto; display: block;" alt="Trend Graph" />`;
+            })
+            .catch(error => {
+              imageContainer.innerHTML = `<div style="text-align: center; padding: 10px; color: #ff6b6b;">Error loading image: ${error.message}</div>`;
+            });
+        }
+      }
+    }
+
+    // Function to upload a file
+    async function uploadFile(fileInput, uploadUrl, statusElement, fileType) {
+      const file = fileInput.files[0];
+      if (!file) {
+        statusElement.textContent = "Please select a file";
+        statusElement.style.color = "#ff6b6b";
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      statusElement.textContent = "Uploading...";
+      statusElement.style.color = "#aaa";
+
+      try {
+        const response = await fetch(uploadUrl, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Upload failed: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        statusElement.textContent = `✓ ${file.name}`;
+        statusElement.style.color = "#4a90e2";
+        
+        // Track uploaded file
+        uploadedFiles[fileType] = true;
+        
+        // Automatically update graphs after successful upload
+        updateGraphs();
+      } catch (error) {
+        statusElement.textContent = `✗ Error: ${error.message}`;
+        statusElement.style.color = "#ff6b6b";
+        uploadedFiles[fileType] = false;
+      }
+    }
+
+    // Set up file upload handlers
+    document.getElementById("uploadEEG").onclick = () => {
+      const fileInput = document.getElementById("eegFile");
+      uploadFile(fileInput, "http://127.0.0.1:8000/api/graphs/eeg/upload", 
+                 document.getElementById("eegStatus"), "eeg");
+    };
+
+    document.getElementById("uploadVitalsWaves").onclick = () => {
+      const fileInput = document.getElementById("vitalsWavesFile");
+      uploadFile(fileInput, "http://127.0.0.1:8000/api/vitals/waves/upload", 
+                 document.getElementById("vitalsWavesStatus"), "vitalsWaves");
+    };
+
+    document.getElementById("uploadVitalsNumerics").onclick = () => {
+      const fileInput = document.getElementById("vitalsNumericsFile");
+      uploadFile(fileInput, "http://127.0.0.1:8000/api/vitals/numerics/upload", 
+                 document.getElementById("vitalsNumericsStatus"), "vitalsNumerics");
+    };
+
+    // Tab switching functionality
+    const tabs = document.querySelectorAll(".tab");
+    tabs.forEach((tab, index) => {
+      tab.onclick = () => {
+        // Remove active class from all tabs
+        tabs.forEach(t => t.classList.remove("active"));
+        // Add active class to clicked tab
+        tab.classList.add("active");
+        
+        if (index === 0) {
+          // Real Time tab
+          currentView = "realtime";
+          updateGraphs();
+        } else if (index === 1) {
+          // Trends tab
+          currentView = "trends";
+          updateGraphs();
+        } else if (index === 2) {
+          // Test Graphs tab - use current view
+          updateGraphs();
+        }
+      };
+    });
+
+    // Show visualize panel (graphs will load when files are uploaded or tabs are clicked)
+    buttons.visualize.onclick = () => {
+      const wasVisualize = active === "visualize";
+      showPanel(active === "visualize" ? "main" : "visualize");
+      
+      // Stop auto-refresh when leaving visualize panel
+      if (wasVisualize && active === "main") {
+        stopVitalsAutoRefresh();
+        stopEEGAutoRefresh();
+        vitalsTimeOffset = 0.0;
+        eegTimeOffset = 0.0;
+      } else if (!wasVisualize && active === "visualize") {
+        // When entering visualize panel, update graphs if in realtime view
+        if (currentView === "realtime") {
+          updateGraphs();
+        }
+      }
     };
   </script>
 </body>
