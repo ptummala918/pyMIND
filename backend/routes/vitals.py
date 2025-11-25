@@ -70,3 +70,27 @@ def get_vitals_numerics_data_endpoint(time_offset: float = 0.0):
 def get_vitals_trend():
     file_path = uploaded_files.get('numerics')
     return generate_vitals_trend_plot(file_path)
+
+@router.delete("/waves/clear")
+def clear_vitals_waves():
+    """Clear the uploaded vitals waves file."""
+    file_path = uploaded_files.get('waves')
+    if file_path and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            return JSONResponse(content={"status": "error", "message": str(e)}, status_code=500)
+    uploaded_files.pop('waves', None)
+    return JSONResponse(content={"status": "cleared"})
+
+@router.delete("/numerics/clear")
+def clear_vitals_numerics():
+    """Clear the uploaded vitals numerics file."""
+    file_path = uploaded_files.get('numerics')
+    if file_path and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            return JSONResponse(content={"status": "error", "message": str(e)}, status_code=500)
+    uploaded_files.pop('numerics', None)
+    return JSONResponse(content={"status": "cleared"})

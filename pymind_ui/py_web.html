@@ -120,6 +120,7 @@
           <div class="btn-group">
             <button class="btn-small">Raw Traces</button>
             <button class="btn-small">Spectrogram</button>
+            <button class="btn-small" id="clearEEGBtn">Clear</button>
           </div>
         </div>
 
@@ -131,6 +132,7 @@
           </div>
           <div class="btn-group">
             <button class="btn-small">Raw Traces</button>
+            <button class="btn-small" id="clearVitalsWavesBtn">Clear</button>
           </div>
         </div>
 
@@ -142,6 +144,7 @@
           </div>
           <div class="btn-group">
             <button class="btn-small">Trends</button>
+            <button class="btn-small" id="clearVitalsNumericsBtn">Clear</button>
           </div>
         </div>
 
@@ -1110,8 +1113,135 @@
 
     document.getElementById("uploadVitalsNumerics").onclick = () => {
       const fileInput = document.getElementById("vitalsNumericsFile");
-      uploadFile(fileInput, "http://127.0.0.1:8000/api/vitals/numerics/upload", 
+      uploadFile(fileInput, "http://127.0.0.1:8000/api/vitals/numerics/upload",
                  document.getElementById("vitalsNumericsStatus"), "vitalsNumerics");
+    };
+
+    // Clear button handlers
+    document.getElementById("clearEEGBtn").onclick = async () => {
+      // Stop auto-refresh
+      stopEEGAutoRefresh();
+
+      // Reset time offset
+      eegTimeOffset = 0.0;
+
+      // Clear uploaded file tracking
+      uploadedFiles.eeg = false;
+
+      // Call backend to delete the file
+      try {
+        await fetch("http://127.0.0.1:8000/api/graphs/eeg/clear", {
+          method: "DELETE"
+        });
+      } catch (error) {
+        console.error("Error clearing EEG file:", error);
+      }
+
+      // Clear file input
+      const fileInput = document.getElementById("eegFile");
+      if (fileInput) fileInput.value = "";
+
+      // Clear status message
+      const statusSpan = document.getElementById("eegStatus");
+      if (statusSpan) statusSpan.textContent = "";
+
+      // Clear canvas
+      if (eegCanvas) {
+        const ctx = eegCanvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, eegCanvas.width, eegCanvas.height);
+        }
+      }
+
+      // Show loading message
+      if (eegLoadingDiv) {
+        eegLoadingDiv.textContent = "Select files to view...";
+        eegLoadingDiv.classList.remove('hidden');
+      }
+    };
+
+    document.getElementById("clearVitalsWavesBtn").onclick = async () => {
+      // Stop auto-refresh
+      stopVitalsAutoRefresh();
+
+      // Reset time offset
+      vitalsTimeOffset = 0.0;
+
+      // Clear uploaded file tracking
+      uploadedFiles.vitalsWaves = false;
+
+      // Call backend to delete the file
+      try {
+        await fetch("http://127.0.0.1:8000/api/vitals/waves/clear", {
+          method: "DELETE"
+        });
+      } catch (error) {
+        console.error("Error clearing vitals waves file:", error);
+      }
+
+      // Clear file input
+      const fileInput = document.getElementById("vitalsWavesFile");
+      if (fileInput) fileInput.value = "";
+
+      // Clear status message
+      const statusSpan = document.getElementById("vitalsWavesStatus");
+      if (statusSpan) statusSpan.textContent = "";
+
+      // Clear canvas
+      if (vitalsCanvas) {
+        const ctx = vitalsCanvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, vitalsCanvas.width, vitalsCanvas.height);
+        }
+      }
+
+      // Show loading message
+      if (vitalsLoadingDiv) {
+        vitalsLoadingDiv.textContent = "Select files to view...";
+        vitalsLoadingDiv.classList.remove('hidden');
+      }
+    };
+
+    document.getElementById("clearVitalsNumericsBtn").onclick = async () => {
+      // Stop auto-refresh
+      stopVitalsNumericsAutoRefresh();
+
+      // Reset time offset
+      vitalsNumericsTimeOffset = 0.0;
+
+      // Clear uploaded file tracking
+      uploadedFiles.vitalsNumerics = false;
+
+      // Call backend to delete the file
+      try {
+        await fetch("http://127.0.0.1:8000/api/vitals/numerics/clear", {
+          method: "DELETE"
+        });
+      } catch (error) {
+        console.error("Error clearing vitals numerics file:", error);
+      }
+
+      // Clear file input
+      const fileInput = document.getElementById("vitalsNumericsFile");
+      if (fileInput) fileInput.value = "";
+
+      // Clear status message
+      const statusSpan = document.getElementById("vitalsNumericsStatus");
+      if (statusSpan) statusSpan.textContent = "";
+
+      // Clear canvas
+      if (vitalsTrendsCanvas) {
+        const ctx = vitalsTrendsCanvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, vitalsTrendsCanvas.width, vitalsTrendsCanvas.height);
+        }
+      }
+
+      // Show loading message
+      if (vitalsTrendsLoadingDiv) {
+        vitalsTrendsLoadingDiv.textContent = "Select files to view...";
+        vitalsTrendsLoadingDiv.classList.remove('hidden');
+      }
     };
 
     // Tab switching functionality

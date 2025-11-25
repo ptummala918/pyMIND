@@ -33,10 +33,22 @@ def get_eeg_trend_plot():
 def get_eeg_live_data_endpoint(time_offset: float = 0.0):
     """
     Get live EEG data as JSON (for canvas rendering).
-    
+
     Args:
         time_offset: Time offset in seconds to scroll through the data (default: 0.0)
     """
     file_path = uploaded_files.get('eeg')
     data = get_eeg_live_data(file_path, time_offset)
     return JSONResponse(content=data)
+
+@router.delete("/eeg/clear")
+def clear_eeg():
+    """Clear the uploaded EEG file."""
+    file_path = uploaded_files.get('eeg')
+    if file_path and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            return JSONResponse(content={"status": "error", "message": str(e)}, status_code=500)
+    uploaded_files.pop('eeg', None)
+    return JSONResponse(content={"status": "cleared"})
