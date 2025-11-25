@@ -153,6 +153,109 @@ def get_vitals_live_data(waves_file_path: Optional[str] = None, numerics_file_pa
     }
 
 
+def get_vitals_numerics_data(numerics_file_path: Optional[str] = None, time_offset: float = 0.0):
+    """
+    Get vitals numerics data for canvas rendering.
+    Returns dict with time-series data for HR, SpO2, MAP, etc.
+    """
+    window_duration = 60.0  # Show 60 seconds of data at a time
+    numerics_series = {}
+
+    if numerics_file_path and os.path.exists(numerics_file_path):
+        try:
+            numerics = read_vitals_numerics_hdf5(numerics_file_path)
+
+            # Find HR, SpO2, and MAP
+            hr_key = None
+            spo2_key = None
+            map_key = None
+
+            for key in numerics.keys():
+                key_lower = key.lower()
+                if 'heart rate' in key_lower or 'hr' in key_lower:
+                    hr_key = key
+                if 'spo2' in key_lower or 'oxigen saturation' in key_lower or 'arterial oxigen' in key_lower:
+                    spo2_key = key
+                if 'map' in key_lower or 'mean' in key_lower:
+                    map_key = key
+
+            # Get HR data
+            if hr_key:
+                time_hr, hr = numerics[hr_key]
+                # Remove zeros
+                mask = hr != 0
+                time_hr = time_hr[mask]
+                hr = hr[mask]
+
+                if len(time_hr) > 1:
+                    start_time = max(time_hr[0], time_hr[0] + time_offset)
+                    end_time = min(time_hr[-1], start_time + window_duration)
+                    window_mask = (time_hr >= start_time) & (time_hr <= end_time)
+
+                    if np.any(window_mask):
+                        time_window = (time_hr[window_mask] - start_time).tolist()
+                        hr_window = hr[window_mask].tolist()
+                        numerics_series['hr'] = {
+                            'time': time_window,
+                            'values': hr_window,
+                            'label': 'Heart Rate',
+                            'unit': 'bpm'
+                        }
+
+            # Get SpO2 data
+            if spo2_key:
+                time_spo2, spo2 = numerics[spo2_key]
+                mask = spo2 != 0
+                time_spo2 = time_spo2[mask]
+                spo2 = spo2[mask]
+
+                if len(time_spo2) > 1:
+                    start_time = max(time_spo2[0], time_spo2[0] + time_offset)
+                    end_time = min(time_spo2[-1], start_time + window_duration)
+                    window_mask = (time_spo2 >= start_time) & (time_spo2 <= end_time)
+
+                    if np.any(window_mask):
+                        time_window = (time_spo2[window_mask] - start_time).tolist()
+                        spo2_window = spo2[window_mask].tolist()
+                        numerics_series['spo2'] = {
+                            'time': time_window,
+                            'values': spo2_window,
+                            'label': 'SpO₂',
+                            'unit': '%'
+                        }
+
+            # Get MAP data
+            if map_key:
+                time_map, map_ = numerics[map_key]
+                mask = map_ != 0
+                time_map = time_map[mask]
+                map_ = map_[mask]
+
+                if len(time_map) > 1:
+                    start_time = max(time_map[0], time_map[0] + time_offset)
+                    end_time = min(time_map[-1], start_time + window_duration)
+                    window_mask = (time_map >= start_time) & (time_map <= end_time)
+
+                    if np.any(window_mask):
+                        time_window = (time_map[window_mask] - start_time).tolist()
+                        map_window = map_[window_mask].tolist()
+                        numerics_series['map'] = {
+                            'time': time_window,
+                            'values': map_window,
+                            'label': 'MAP',
+                            'unit': 'mmHg'
+                        }
+
+        except Exception:
+            pass
+
+    return {
+        'numerics': numerics_series,
+        'time_offset': time_offset,
+        'window_duration': window_duration
+    }
+
+
 def generate_vitals_trend_plot(numerics_file_path: Optional[str] = None):
     """
     Generate a vitals trend plot from HDF5 file or simulated data.

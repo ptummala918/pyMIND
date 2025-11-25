@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import JSONResponse
 import tempfile
 import os
-from backend.services.vitals_service import generate_vitals_trend_plot, get_vitals_live_data
+from backend.services.vitals_service import generate_vitals_trend_plot, get_vitals_live_data, get_vitals_numerics_data
 
 router = APIRouter()
 
@@ -52,6 +52,18 @@ def get_vitals_live_data_endpoint(time_offset: float = 0.0):
     waves_file_path = uploaded_files.get('waves')
     numerics_file_path = uploaded_files.get('numerics')
     data = get_vitals_live_data(waves_file_path, numerics_file_path, time_offset)
+    return JSONResponse(content=data)
+
+@router.get("/numerics/data")
+def get_vitals_numerics_data_endpoint(time_offset: float = 0.0):
+    """
+    Get vitals numerics data as JSON (for canvas rendering).
+
+    Args:
+        time_offset: Time offset in seconds to scroll through the data (default: 0.0)
+    """
+    file_path = uploaded_files.get('numerics')
+    data = get_vitals_numerics_data(file_path, time_offset)
     return JSONResponse(content=data)
 
 @router.get("/trend")
