@@ -189,15 +189,6 @@ Expected structure:
 - Automatic scrolling through data with configurable time offsets
 - Smooth animations and updates
 
-### Multi-Channel Support
-- EEG: Displays up to 8 channels simultaneously
-- Vitals: Displays up to 3 waveforms simultaneously (ECG, ABP, Pleth, or Resp)
-
-### Automatic Graph Updates
-- Graphs automatically start updating when files are uploaded
-- Updates pause when switching to trends view
-- Proper cleanup when navigating away
-
 ### File Upload Tracking
 - Frontend tracks which files have been uploaded
 - Graphs only update when corresponding files are available
@@ -217,47 +208,13 @@ Expected structure:
 - **Time Windows**: 10-second windows that scroll through the data
 - **Refresh Rate**: 1 second intervals with 0.5-second scroll steps
 
-### Error Handling
-- Graceful degradation when files are missing
-- Loading indicators during data fetch
-- Error messages displayed to users
-- Fallback to simulated data for testing
-
 ## Future Enhancements
 
 - Connect panel functionality for real-time data acquisition
 - Disconnect panel functionality for managing active connections
 - Timestamp table for adding annotations
-- Additional visualization modes (spectrograms, etc.)
+- Additional visualization modes
 - Export functionality for graphs and data
 - Session management for multiple users
-
-## Development Notes
-
-### Code Quality
-- Clean codebase with no vestigial/redundant code
-- Modular architecture with clear separation of concerns
-- Canvas-based rendering for optimal performance
-- Proper error handling and user feedback
-
-### Performance
-- Efficient canvas rendering with minimal redraws
-- Optimized data processing on backend
-- Streaming data approach for large files
-- Proper cleanup of intervals and resources
-
-## License
-
-[Add your license information here]
-
-## Contributors
-
-[Add contributor information here]
-
-## Acknowledgments
-
-Brown University Logo included in the interface.
-
----
 
 **Note**: This is a beta version. Some features may be under active development.
