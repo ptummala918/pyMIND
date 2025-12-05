@@ -629,3 +629,172 @@ main {
 .brown-logo img:hover {
   opacity: 1;
 }
+
+/* ====== Threshold Monitoring Panel ====== */
+.threshold-panel {
+  background: #2b2b2b;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.threshold-panel h3 {
+  margin-bottom: 0.25rem;
+  color: #eee;
+  font-size: 1rem;
+  border-bottom: 1px solid #444;
+  padding-bottom: 0.5rem;
+}
+
+.threshold-status {
+  padding: 0.5rem;
+  background: #1a1a1a;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.threshold-status .status-message {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.threshold-status.active .status-message {
+  color: #4a90e2;
+}
+
+.threshold-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.threshold-item {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+
+.threshold-item.breach {
+  border-color: #ff4444;
+  background: #2a1a1a;
+}
+
+.threshold-item.warning {
+  border-color: #ffaa00;
+  background: #2a2a1a;
+}
+
+.threshold-item.normal {
+  border-color: #44aa44;
+}
+
+.threshold-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.threshold-label {
+  font-weight: bold;
+  color: #ddd;
+  font-size: 0.9rem;
+  min-width: 40px;
+}
+
+.threshold-value {
+  font-family: monospace;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #fff;
+}
+
+.threshold-unit {
+  color: #888;
+  font-size: 0.8rem;
+}
+
+.threshold-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-left: auto;
+  background: #555;
+}
+
+.threshold-indicator.normal {
+  background: #44aa44;
+  box-shadow: 0 0 6px #44aa44;
+}
+
+.threshold-indicator.warning {
+  background: #ffaa00;
+  box-shadow: 0 0 6px #ffaa00;
+}
+
+.threshold-indicator.breach {
+  background: #ff4444;
+  box-shadow: 0 0 6px #ff4444;
+  animation: pulse-red 1s infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.threshold-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.threshold-inputs input[type="number"] {
+  width: 55px;
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #ddd;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+  font-family: monospace;
+  text-align: center;
+}
+
+.threshold-inputs input[type="number"]:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+.threshold-separator {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.threshold-actions {
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #333;
+}
+
+.threshold-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+.threshold-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.threshold-toggle:hover {
+  color: #ddd;
+}

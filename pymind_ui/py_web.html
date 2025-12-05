@@ -153,6 +153,65 @@
 
         <!-- Right side: Features sidebar -->
         <div class="features-sidebar">
+          <!-- Threshold Tracking Panel -->
+          <div class="threshold-panel">
+            <h3>Threshold Monitoring</h3>
+            <div class="threshold-status" id="thresholdStatus">
+              <div class="status-message">Upload vitals numerics to enable</div>
+            </div>
+            <div class="threshold-items" id="thresholdItems">
+              <!-- HR -->
+              <div class="threshold-item" data-param="hr">
+                <div class="threshold-header">
+                  <span class="threshold-label">HR</span>
+                  <span class="threshold-value" id="hrValue">--</span>
+                  <span class="threshold-unit">bpm</span>
+                  <span class="threshold-indicator" id="hrIndicator"></span>
+                </div>
+                <div class="threshold-inputs">
+                  <input type="number" id="hrMin" placeholder="Min" value="60" />
+                  <span class="threshold-separator">-</span>
+                  <input type="number" id="hrMax" placeholder="Max" value="100" />
+                </div>
+              </div>
+              <!-- SpO2 -->
+              <div class="threshold-item" data-param="spo2">
+                <div class="threshold-header">
+                  <span class="threshold-label">SpO2</span>
+                  <span class="threshold-value" id="spo2Value">--</span>
+                  <span class="threshold-unit">%</span>
+                  <span class="threshold-indicator" id="spo2Indicator"></span>
+                </div>
+                <div class="threshold-inputs">
+                  <input type="number" id="spo2Min" placeholder="Min" value="92" />
+                  <span class="threshold-separator">-</span>
+                  <input type="number" id="spo2Max" placeholder="Max" value="100" />
+                </div>
+              </div>
+              <!-- MAP -->
+              <div class="threshold-item" data-param="map">
+                <div class="threshold-header">
+                  <span class="threshold-label">MAP</span>
+                  <span class="threshold-value" id="mapValue">--</span>
+                  <span class="threshold-unit">mmHg</span>
+                  <span class="threshold-indicator" id="mapIndicator"></span>
+                </div>
+                <div class="threshold-inputs">
+                  <input type="number" id="mapMin" placeholder="Min" value="70" />
+                  <span class="threshold-separator">-</span>
+                  <input type="number" id="mapMax" placeholder="Max" value="105" />
+                </div>
+              </div>
+            </div>
+            <div class="threshold-actions">
+              <label class="threshold-toggle">
+                <input type="checkbox" id="autoAnnotateBreaches" />
+                <span>Auto-annotate breaches</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Annotations Panel -->
           <div class="timestamp-table">
             <h3>Annotations</h3>
             <div class="table-header">
@@ -1488,6 +1547,177 @@
 
     // Make deleteTimestamp available globally for onclick handlers
     window.deleteTimestamp = deleteTimestamp;
+
+    // =====================
+    // THRESHOLD MONITORING
+    // =====================
+
+    // Store current vitals values and thresholds
+    let currentVitals = {
+      hr: null,
+      spo2: null,
+      map: null
+    };
+
+    // Track last breach state to avoid duplicate annotations
+    let lastBreachState = {
+      hr: null,
+      spo2: null,
+      map: null
+    };
+
+    // Get threshold bounds from inputs
+    function getThresholdBounds() {
+      return {
+        hr: {
+          min: parseFloat(document.getElementById('hrMin').value) || 60,
+          max: parseFloat(document.getElementById('hrMax').value) || 100
+        },
+        spo2: {
+          min: parseFloat(document.getElementById('spo2Min').value) || 92,
+          max: parseFloat(document.getElementById('spo2Max').value) || 100
+        },
+        map: {
+          min: parseFloat(document.getElementById('mapMin').value) || 70,
+          max: parseFloat(document.getElementById('mapMax').value) || 105
+        }
+      };
+    }
+
+    // Check threshold and return status: 'normal', 'warning', 'breach'
+    function checkThreshold(value, min, max) {
+      if (value === null || value === undefined) return null;
+
+      // Warning zone is 10% of range near boundaries
+      const range = max - min;
+      const warningMargin = range * 0.1;
+
+      if (value < min || value > max) {
+        return 'breach';
+      } else if (value < min + warningMargin || value > max - warningMargin) {
+        return 'warning';
+      }
+      return 'normal';
+    }
+
+    // Update threshold UI for a specific vital
+    function updateThresholdUI(param, value, status) {
+      const valueEl = document.getElementById(`${param}Value`);
+      const indicatorEl = document.getElementById(`${param}Indicator`);
+      const itemEl = document.querySelector(`.threshold-item[data-param="${param}"]`);
+
+      if (!valueEl || !indicatorEl || !itemEl) return;
+
+      // Update value display
+      if (value !== null && value !== undefined) {
+        valueEl.textContent = value.toFixed(0);
+      } else {
+        valueEl.textContent = '--';
+      }
+
+      // Update indicator and item classes
+      indicatorEl.classList.remove('normal', 'warning', 'breach');
+      itemEl.classList.remove('normal', 'warning', 'breach');
+
+      if (status) {
+        indicatorEl.classList.add(status);
+        itemEl.classList.add(status);
+      }
+    }
+
+    // Update all threshold displays based on current vitals data
+    function updateThresholdMonitor(numericsData) {
+      if (!numericsData || !numericsData.numerics) {
+        // No data available
+        const statusEl = document.getElementById('thresholdStatus');
+        if (statusEl) {
+          statusEl.classList.remove('active');
+          statusEl.querySelector('.status-message').textContent = 'Upload vitals numerics to enable';
+        }
+        return;
+      }
+
+      const numerics = numericsData.numerics;
+      const bounds = getThresholdBounds();
+      const autoAnnotate = document.getElementById('autoAnnotateBreaches').checked;
+
+      // Update status to active
+      const statusEl = document.getElementById('thresholdStatus');
+      if (statusEl) {
+        statusEl.classList.add('active');
+        statusEl.querySelector('.status-message').textContent = 'Monitoring active';
+      }
+
+      // Check each vital
+      ['hr', 'spo2', 'map'].forEach(param => {
+        const numericData = numerics[param];
+        if (numericData && numericData.values && numericData.values.length > 0) {
+          // Get latest value
+          const latestValue = numericData.values[numericData.values.length - 1];
+          currentVitals[param] = latestValue;
+
+          const status = checkThreshold(latestValue, bounds[param].min, bounds[param].max);
+          updateThresholdUI(param, latestValue, status);
+
+          // Auto-annotate breaches (only when transitioning to breach state)
+          if (autoAnnotate && status === 'breach' && lastBreachState[param] !== 'breach') {
+            const paramLabels = { hr: 'HR', spo2: 'SpO2', map: 'MAP' };
+            const paramUnits = { hr: 'bpm', spo2: '%', map: 'mmHg' };
+            const direction = latestValue < bounds[param].min ? 'LOW' : 'HIGH';
+            const description = `${paramLabels[param]} ${direction}: ${latestValue.toFixed(0)} ${paramUnits[param]}`;
+
+            addTimestamp(getCurrentTimeOffset(), description);
+          }
+
+          lastBreachState[param] = status;
+        } else {
+          currentVitals[param] = null;
+          updateThresholdUI(param, null, null);
+          lastBreachState[param] = null;
+        }
+      });
+    }
+
+    // Modified updateVitalsNumerics to also update threshold monitor
+    const originalUpdateVitalsNumerics = updateVitalsNumerics;
+    updateVitalsNumerics = async function(timeOffset) {
+      try {
+        const base = "http://127.0.0.1:8000";
+        const response = await fetch(`${base}/api/vitals/numerics/data?time_offset=${timeOffset}`);
+
+        if (!response.ok) throw new Error('Failed to fetch vitals numerics data');
+
+        const data = await response.json();
+        renderVitalsNumerics(data);
+
+        // Update threshold monitor with the same data
+        updateThresholdMonitor(data);
+      } catch (error) {
+        console.error('Error updating vitals numerics:', error);
+        vitalsTrendsLoadingDiv.textContent = `Error: ${error.message}`;
+        vitalsTrendsLoadingDiv.classList.remove('hidden');
+      }
+    };
+
+    // Reset threshold monitor when clearing vitals numerics
+    const originalClearVitalsNumericsHandler = document.getElementById("clearVitalsNumericsBtn").onclick;
+    document.getElementById("clearVitalsNumericsBtn").onclick = async function() {
+      await originalClearVitalsNumericsHandler();
+
+      // Reset threshold monitor
+      currentVitals = { hr: null, spo2: null, map: null };
+      lastBreachState = { hr: null, spo2: null, map: null };
+
+      ['hr', 'spo2', 'map'].forEach(param => {
+        updateThresholdUI(param, null, null);
+      });
+
+      const statusEl = document.getElementById('thresholdStatus');
+      if (statusEl) {
+        statusEl.classList.remove('active');
+        statusEl.querySelector('.status-message').textContent = 'Upload vitals numerics to enable';
+      }
+    };
 
   </script>
 </body>
