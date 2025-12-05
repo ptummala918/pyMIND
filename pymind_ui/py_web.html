@@ -150,13 +150,20 @@
 
         <div class="timestamp-table">
           <div class="table-header">
-            <span>Time Stamp</span>
-            <span>Comment</span>
+            <span>Time (s)</span>
+            <span>Description</span>
+            <span>Actions</span>
           </div>
-          <div class="table-body"></div>
+          <div class="table-body" id="timestampTableBody"></div>
+          <div class="timestamp-input-row">
+            <input type="number" id="timestampTimeInput" placeholder="Time (s)" step="0.1" min="0" />
+            <input type="text" id="timestampDescInput" placeholder="Description..." maxlength="100" />
+            <button class="btn-small" id="addTimestampBtn">+</button>
+          </div>
           <div class="table-actions">
-            <button class="btn-small">+</button>
-            <button class="btn-small">Save</button>
+            <button class="btn-small" id="markCurrentTimeBtn">Mark Current</button>
+            <button class="btn-small" id="exportTimestampsBtn">Export</button>
+            <button class="btn-small" id="clearTimestampsBtn">Clear All</button>
           </div>
         </div>
       </div>
@@ -1286,8 +1293,194 @@
         if (currentView === "realtime") {
           updateGraphs();
         }
+        // Load timestamps when entering visualize panel
+        loadTimestamps();
       }
     };
+
+    // =====================
+    // TIMESTAMP FUNCTIONALITY
+    // =====================
+
+    const API_BASE = "http://127.0.0.1:8000";
+
+    // Load and display all timestamps
+    async function loadTimestamps() {
+      try {
+        const response = await fetch(`${API_BASE}/api/timestamps/`);
+        if (!response.ok) throw new Error('Failed to load timestamps');
+
+        const data = await response.json();
+        renderTimestampTable(data.timestamps);
+      } catch (error) {
+        console.error('Error loading timestamps:', error);
+      }
+    }
+
+    // Render timestamp table
+    function renderTimestampTable(timestamps) {
+      const tableBody = document.getElementById('timestampTableBody');
+      if (!tableBody) return;
+
+      if (timestamps.length === 0) {
+        tableBody.innerHTML = '<div class="timestamp-empty">No timestamps yet. Add one below.</div>';
+        return;
+      }
+
+      // Sort by time offset
+      timestamps.sort((a, b) => a.time_offset - b.time_offset);
+
+      tableBody.innerHTML = timestamps.map(ts => `
+        <div class="timestamp-row" data-id="${ts.id}">
+          <span class="timestamp-time">${ts.time_offset.toFixed(1)}s</span>
+          <span class="timestamp-desc">${escapeHtml(ts.description)}</span>
+          <span class="timestamp-actions">
+            <button class="btn-tiny" onclick="deleteTimestamp(${ts.id})">×</button>
+          </span>
+        </div>
+      `).join('');
+    }
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Add a new timestamp
+    async function addTimestamp(timeOffset, description) {
+      if (!description.trim()) {
+        alert('Please enter a description');
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/api/timestamps/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            time_offset: parseFloat(timeOffset),
+            description: description.trim()
+          })
+        });
+
+        if (!response.ok) throw new Error('Failed to add timestamp');
+
+        // Reload timestamps
+        loadTimestamps();
+
+        // Clear inputs
+        document.getElementById('timestampTimeInput').value = '';
+        document.getElementById('timestampDescInput').value = '';
+      } catch (error) {
+        console.error('Error adding timestamp:', error);
+        alert('Failed to add timestamp: ' + error.message);
+      }
+    }
+
+    // Delete a timestamp
+    async function deleteTimestamp(id) {
+      try {
+        const response = await fetch(`${API_BASE}/api/timestamps/${id}`, {
+          method: 'DELETE'
+        });
+
+        if (!response.ok) throw new Error('Failed to delete timestamp');
+
+        // Reload timestamps
+        loadTimestamps();
+      } catch (error) {
+        console.error('Error deleting timestamp:', error);
+        alert('Failed to delete timestamp: ' + error.message);
+      }
+    }
+
+    // Clear all timestamps
+    async function clearAllTimestamps() {
+      if (!confirm('Are you sure you want to clear all timestamps?')) return;
+
+      try {
+        const response = await fetch(`${API_BASE}/api/timestamps/`, {
+          method: 'DELETE'
+        });
+
+        if (!response.ok) throw new Error('Failed to clear timestamps');
+
+        // Reload timestamps
+        loadTimestamps();
+      } catch (error) {
+        console.error('Error clearing timestamps:', error);
+        alert('Failed to clear timestamps: ' + error.message);
+      }
+    }
+
+    // Export timestamps as JSON file
+    async function exportTimestamps() {
+      try {
+        const response = await fetch(`${API_BASE}/api/timestamps/export`);
+
+        if (!response.ok) {
+          const data = await response.json();
+          alert(data.message || 'Failed to export timestamps');
+          return;
+        }
+
+        // Download the file
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'timestamps.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error('Error exporting timestamps:', error);
+        alert('Failed to export timestamps: ' + error.message);
+      }
+    }
+
+    // Get current time offset based on which monitor is running
+    function getCurrentTimeOffset() {
+      // Priority: EEG > Vitals Waves > Vitals Numerics
+      if (uploadedFiles.eeg && eegTimeOffset > 0) {
+        return eegTimeOffset;
+      } else if (uploadedFiles.vitalsWaves && vitalsTimeOffset > 0) {
+        return vitalsTimeOffset;
+      } else if (uploadedFiles.vitalsNumerics && vitalsNumericsTimeOffset > 0) {
+        return vitalsNumericsTimeOffset;
+      }
+      return 0;
+    }
+
+    // Set up timestamp button handlers
+    document.getElementById('addTimestampBtn').onclick = () => {
+      const timeInput = document.getElementById('timestampTimeInput');
+      const descInput = document.getElementById('timestampDescInput');
+      const timeValue = parseFloat(timeInput.value) || 0;
+      addTimestamp(timeValue, descInput.value);
+    };
+
+    document.getElementById('markCurrentTimeBtn').onclick = () => {
+      const currentTime = getCurrentTimeOffset();
+      document.getElementById('timestampTimeInput').value = currentTime.toFixed(1);
+      document.getElementById('timestampDescInput').focus();
+    };
+
+    document.getElementById('exportTimestampsBtn').onclick = exportTimestamps;
+    document.getElementById('clearTimestampsBtn').onclick = clearAllTimestamps;
+
+    // Allow Enter key to add timestamp
+    document.getElementById('timestampDescInput').onkeypress = (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('addTimestampBtn').click();
+      }
+    };
+
+    // Make deleteTimestamp available globally for onclick handlers
+    window.deleteTimestamp = deleteTimestamp;
 
   </script>
 </body>
