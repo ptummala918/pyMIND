@@ -110,60 +110,67 @@
         </div>
       </div>
 
-      <div class="visualize-panels">
-        <div class="panel">
-          <h3>EEG Trends</h3>
-          <div class="monitor-container" id="eegBox">
-            <canvas id="eegCanvas"></canvas>
-            <div class="monitor-loading" id="eegLoading">Select files to view...</div>
+      <div class="visualize-layout">
+        <!-- Left side: Graphs -->
+        <div class="visualize-panels">
+          <div class="panel">
+            <h3>EEG Trends</h3>
+            <div class="monitor-container" id="eegBox">
+              <canvas id="eegCanvas"></canvas>
+              <div class="monitor-loading" id="eegLoading">Select files to view...</div>
+            </div>
+            <div class="btn-group">
+              <button class="btn-small">Raw Traces</button>
+              <button class="btn-small">Spectrogram</button>
+              <button class="btn-small" id="clearEEGBtn">Clear</button>
+            </div>
           </div>
-          <div class="btn-group">
-            <button class="btn-small">Raw Traces</button>
-            <button class="btn-small">Spectrogram</button>
-            <button class="btn-small" id="clearEEGBtn">Clear</button>
+
+          <div class="panel">
+            <h3>Vitals Waveforms</h3>
+            <div class="monitor-container" id="vitalsBox">
+              <canvas id="vitalsCanvas"></canvas>
+              <div class="monitor-loading" id="vitalsLoading">Select files to view...</div>
+            </div>
+            <div class="btn-group">
+              <button class="btn-small">Raw Traces</button>
+              <button class="btn-small" id="clearVitalsWavesBtn">Clear</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h3>Vitals Trends</h3>
+            <div class="monitor-container" id="vitalsTrendsBox">
+              <canvas id="vitalsTrendsCanvas"></canvas>
+              <div class="monitor-loading" id="vitalsTrendsLoading">Select files to view...</div>
+            </div>
+            <div class="btn-group">
+              <button class="btn-small">Trends</button>
+              <button class="btn-small" id="clearVitalsNumericsBtn">Clear</button>
+            </div>
           </div>
         </div>
 
-        <div class="panel">
-          <h3>Vitals Waveforms</h3>
-          <div class="monitor-container" id="vitalsBox">
-            <canvas id="vitalsCanvas"></canvas>
-            <div class="monitor-loading" id="vitalsLoading">Select files to view...</div>
-          </div>
-          <div class="btn-group">
-            <button class="btn-small">Raw Traces</button>
-            <button class="btn-small" id="clearVitalsWavesBtn">Clear</button>
-          </div>
-        </div>
-
-        <div class="panel">
-          <h3>Vitals Trends</h3>
-          <div class="monitor-container" id="vitalsTrendsBox">
-            <canvas id="vitalsTrendsCanvas"></canvas>
-            <div class="monitor-loading" id="vitalsTrendsLoading">Select files to view...</div>
-          </div>
-          <div class="btn-group">
-            <button class="btn-small">Trends</button>
-            <button class="btn-small" id="clearVitalsNumericsBtn">Clear</button>
-          </div>
-        </div>
-
-        <div class="timestamp-table">
-          <div class="table-header">
-            <span>Time (s)</span>
-            <span>Description</span>
-            <span>Actions</span>
-          </div>
-          <div class="table-body" id="timestampTableBody"></div>
-          <div class="timestamp-input-row">
-            <input type="number" id="timestampTimeInput" placeholder="Time (s)" step="0.1" min="0" />
-            <input type="text" id="timestampDescInput" placeholder="Description..." maxlength="100" />
-            <button class="btn-small" id="addTimestampBtn">+</button>
-          </div>
-          <div class="table-actions">
-            <button class="btn-small" id="markCurrentTimeBtn">Mark Current</button>
-            <button class="btn-small" id="exportTimestampsBtn">Export</button>
-            <button class="btn-small" id="clearTimestampsBtn">Clear All</button>
+        <!-- Right side: Features sidebar -->
+        <div class="features-sidebar">
+          <div class="timestamp-table">
+            <h3>Annotations</h3>
+            <div class="table-header">
+              <span>Time</span>
+              <span>Description</span>
+              <span></span>
+            </div>
+            <div class="table-body" id="timestampTableBody"></div>
+            <div class="timestamp-input-row">
+              <input type="number" id="timestampTimeInput" placeholder="0.0" step="0.1" min="0" />
+              <input type="text" id="timestampDescInput" placeholder="Description..." maxlength="100" />
+              <button class="btn-small" id="addTimestampBtn">+</button>
+            </div>
+            <div class="table-actions">
+              <button class="btn-small" id="markCurrentTimeBtn">Mark Current</button>
+              <button class="btn-small" id="exportTimestampsBtn">Export</button>
+              <button class="btn-small" id="clearTimestampsBtn">Clear All</button>
+            </div>
           </div>
         </div>
       </div>
