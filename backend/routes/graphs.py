@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import JSONResponse
 import tempfile
 import os
-from backend.services.eeg_service import generate_eeg_trend_plot, get_eeg_live_data
+from backend.services.eeg_service import generate_eeg_trend_plot, get_eeg_live_data, get_eeg_spectrograms
 
 router = APIRouter()
 
@@ -52,3 +52,20 @@ def clear_eeg():
             return JSONResponse(content={"status": "error", "message": str(e)}, status_code=500)
     uploaded_files.pop('eeg', None)
     return JSONResponse(content={"status": "cleared"})
+
+
+@router.get("/eeg/spectrogram")
+def get_eeg_spectrogram_data(time_offset: float = 0.0, window_duration: float = 30.0):
+    """
+    Get EEG spectrogram data for all channels.
+
+    Args:
+        time_offset: Time offset in seconds to start the spectrogram window (default: 0.0)
+        window_duration: Duration of the spectrogram window in seconds (default: 30.0)
+
+    Returns:
+        JSON with spectrograms for all channels, frequencies, times, and metadata
+    """
+    file_path = uploaded_files.get('eeg')
+    data = get_eeg_spectrograms(file_path, time_offset, window_duration)
+    return JSONResponse(content=data)

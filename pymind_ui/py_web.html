@@ -120,9 +120,17 @@
               <div class="monitor-loading" id="eegLoading">Select files to view...</div>
             </div>
             <div class="btn-group">
-              <button class="btn-small">Raw Traces</button>
-              <button class="btn-small">Spectrogram</button>
+              <button class="btn-small" id="eegRawTracesBtn">Raw Traces</button>
+              <button class="btn-small" id="eegSpectrogramBtn">Spectrogram</button>
               <button class="btn-small" id="clearEEGBtn">Clear</button>
+            </div>
+          </div>
+
+          <!-- EEG Spectrogram Panel (hidden by default) -->
+          <div class="panel" id="spectrogramPanel" style="display: none;">
+            <h3>EEG Spectrograms <button class="btn-small" id="closeSpectrogramBtn">× Close</button></h3>
+            <div class="spectrogram-grid" id="spectrogramGrid">
+              <div class="monitor-loading" id="spectrogramLoading">Loading spectrograms...</div>
             </div>
           </div>
 
@@ -1716,6 +1724,226 @@
       if (statusEl) {
         statusEl.classList.remove('active');
         statusEl.querySelector('.status-message').textContent = 'Upload vitals numerics to enable';
+      }
+    };
+
+    // =====================
+    // EEG SPECTROGRAM
+    // =====================
+
+    // Spectrogram color map (jet-like colormap)
+    function getSpectrogramColor(value, minVal, maxVal) {
+      // Normalize value to 0-1 range
+      const normalized = Math.max(0, Math.min(1, (value - minVal) / (maxVal - minVal)));
+
+      // Jet colormap approximation
+      let r, g, b;
+      if (normalized < 0.125) {
+        r = 0;
+        g = 0;
+        b = 0.5 + normalized * 4;
+      } else if (normalized < 0.375) {
+        r = 0;
+        g = (normalized - 0.125) * 4;
+        b = 1;
+      } else if (normalized < 0.625) {
+        r = (normalized - 0.375) * 4;
+        g = 1;
+        b = 1 - (normalized - 0.375) * 4;
+      } else if (normalized < 0.875) {
+        r = 1;
+        g = 1 - (normalized - 0.625) * 4;
+        b = 0;
+      } else {
+        r = 1 - (normalized - 0.875) * 2;
+        g = 0;
+        b = 0;
+      }
+
+      return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
+    }
+
+    // Render a single spectrogram on a canvas
+    function renderSpectrogram(canvas, powerData, frequencies, times, channelName) {
+      const ctx = canvas.getContext('2d');
+      if (!ctx || !powerData || powerData.length === 0) return;
+
+      const width = canvas.width;
+      const height = canvas.height;
+
+      // Clear canvas
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, width, height);
+
+      const numFreqs = powerData.length;
+      const numTimes = powerData[0].length;
+
+      // Find min/max for color scaling
+      let minPower = Infinity, maxPower = -Infinity;
+      for (let f = 0; f < numFreqs; f++) {
+        for (let t = 0; t < numTimes; t++) {
+          const val = powerData[f][t];
+          if (val < minPower) minPower = val;
+          if (val > maxPower) maxPower = val;
+        }
+      }
+
+      // Render spectrogram pixels
+      const pixelWidth = width / numTimes;
+      const pixelHeight = height / numFreqs;
+
+      for (let f = 0; f < numFreqs; f++) {
+        for (let t = 0; t < numTimes; t++) {
+          const value = powerData[f][t];
+          ctx.fillStyle = getSpectrogramColor(value, minPower, maxPower);
+          // Flip y-axis so low frequencies are at bottom
+          const y = height - (f + 1) * pixelHeight;
+          ctx.fillRect(t * pixelWidth, y, pixelWidth + 1, pixelHeight + 1);
+        }
+      }
+
+      // Add frequency axis labels
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+
+      // Max frequency label
+      const maxFreq = frequencies[frequencies.length - 1];
+      ctx.fillText(`${maxFreq.toFixed(0)} Hz`, width - 5, 12);
+
+      // Min frequency label
+      ctx.fillText(`0 Hz`, width - 5, height - 3);
+    }
+
+    // Fetch and display all spectrograms
+    async function loadSpectrograms() {
+      const spectrogramGrid = document.getElementById('spectrogramGrid');
+      const spectrogramLoading = document.getElementById('spectrogramLoading');
+      const spectrogramPanel = document.getElementById('spectrogramPanel');
+
+      if (!spectrogramGrid || !spectrogramPanel) return;
+
+      // Show loading
+      spectrogramLoading.style.display = 'block';
+      spectrogramLoading.textContent = 'Computing spectrograms...';
+      spectrogramGrid.innerHTML = '';
+      spectrogramGrid.appendChild(spectrogramLoading);
+
+      try {
+        const response = await fetch(`${API_BASE}/api/graphs/eeg/spectrogram?window_duration=30`);
+        if (!response.ok) throw new Error('Failed to fetch spectrogram data');
+
+        const data = await response.json();
+
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        const channelNames = data.channel_names || [];
+        const spectrograms = data.spectrograms || {};
+        const frequencies = data.frequencies || [];
+        const times = data.times || [];
+
+        if (channelNames.length === 0 || Object.keys(spectrograms).length === 0) {
+          spectrogramLoading.textContent = 'No EEG data available. Please upload an EEG file first.';
+          return;
+        }
+
+        // Hide loading
+        spectrogramLoading.style.display = 'none';
+
+        // Create spectrogram for each channel
+        channelNames.forEach(channelName => {
+          const powerData = spectrograms[channelName];
+          if (!powerData) return;
+
+          // Create container
+          const item = document.createElement('div');
+          item.className = 'spectrogram-item';
+
+          // Channel name header
+          const header = document.createElement('h4');
+          header.textContent = channelName;
+          item.appendChild(header);
+
+          // Canvas for spectrogram
+          const canvas = document.createElement('canvas');
+          canvas.className = 'spectrogram-canvas';
+          canvas.width = 380;
+          canvas.height = 120;
+          item.appendChild(canvas);
+
+          // Colorbar
+          const colorbar = document.createElement('div');
+          colorbar.className = 'spectrogram-colorbar';
+          colorbar.innerHTML = `
+            <span>Low</span>
+            <div class="spectrogram-colorbar-gradient"></div>
+            <span>High (dB)</span>
+          `;
+          item.appendChild(colorbar);
+
+          // Time axis label
+          const timeLabel = document.createElement('div');
+          timeLabel.style.cssText = 'text-align: center; font-size: 0.7rem; color: #888; margin-top: 0.25rem;';
+          const duration = times.length > 0 ? times[times.length - 1].toFixed(1) : '30';
+          timeLabel.textContent = `Time: 0 - ${duration}s`;
+          item.appendChild(timeLabel);
+
+          spectrogramGrid.appendChild(item);
+
+          // Render the spectrogram
+          renderSpectrogram(canvas, powerData, frequencies, times, channelName);
+        });
+
+        // Show the panel
+        spectrogramPanel.style.display = 'block';
+
+      } catch (error) {
+        console.error('Error loading spectrograms:', error);
+        spectrogramLoading.textContent = `Error: ${error.message}`;
+        spectrogramLoading.style.display = 'block';
+      }
+    }
+
+    // Spectrogram button click handler
+    document.getElementById('eegSpectrogramBtn').onclick = async function() {
+      if (!uploadedFiles.eeg) {
+        alert('Please upload an EEG file first.');
+        return;
+      }
+
+      // Stop EEG auto-refresh while viewing spectrograms
+      stopEEGAutoRefresh();
+
+      // Load and display spectrograms
+      await loadSpectrograms();
+    };
+
+    // Raw Traces button - switch back to live EEG view
+    document.getElementById('eegRawTracesBtn').onclick = function() {
+      // Hide spectrogram panel
+      const spectrogramPanel = document.getElementById('spectrogramPanel');
+      if (spectrogramPanel) {
+        spectrogramPanel.style.display = 'none';
+      }
+
+      // Restart EEG auto-refresh if file is uploaded
+      if (uploadedFiles.eeg) {
+        startEEGAutoRefresh();
+      }
+    };
+
+    // Close spectrogram panel button
+    document.getElementById('closeSpectrogramBtn').onclick = function() {
+      const spectrogramPanel = document.getElementById('spectrogramPanel');
+      if (spectrogramPanel) {
+        spectrogramPanel.style.display = 'none';
+      }
+
+      // Restart EEG auto-refresh if file is uploaded
+      if (uploadedFiles.eeg) {
+        startEEGAutoRefresh();
       }
     };
 

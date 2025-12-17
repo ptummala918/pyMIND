@@ -798,3 +798,69 @@ main {
 .threshold-toggle:hover {
   color: #ddd;
 }
+
+/* ====== Spectrogram Panel ====== */
+#spectrogramPanel {
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+#spectrogramPanel h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#spectrogramPanel h3 button {
+  margin-left: auto;
+}
+
+.spectrogram-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 1rem;
+  padding: 0.5rem;
+}
+
+.spectrogram-item {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+
+.spectrogram-item h4 {
+  margin: 0 0 0.5rem 0;
+  padding: 0;
+  font-size: 0.9rem;
+  color: #4a90e2;
+  text-align: center;
+}
+
+.spectrogram-canvas {
+  width: 100%;
+  height: 120px;
+  background: #000;
+  border-radius: 4px;
+}
+
+.spectrogram-colorbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: #888;
+}
+
+.spectrogram-colorbar-gradient {
+  flex: 1;
+  height: 10px;
+  margin: 0 0.5rem;
+  background: linear-gradient(to right,
+    #000033, #000066, #000099, #0000cc, #0000ff,
+    #0066ff, #00ccff, #00ffcc, #00ff66, #00ff00,
+    #66ff00, #ccff00, #ffff00, #ffcc00, #ff9900,
+    #ff6600, #ff3300, #ff0000);
+  border-radius: 2px;
+}
