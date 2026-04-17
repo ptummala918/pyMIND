@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 import tempfile
 import os
 from backend.services.vitals_service import generate_vitals_trend_plot, get_vitals_live_data, get_vitals_numerics_data
+from backend.services.hl7_service import get_live_hl7_data, has_live_hl7_data
 
 router = APIRouter()
 
@@ -82,6 +83,22 @@ def clear_vitals_waves():
             return JSONResponse(content={"status": "error", "message": str(e)}, status_code=500)
     uploaded_files.pop('waves', None)
     return JSONResponse(content={"status": "cleared"})
+
+@router.get("/hl7/live")
+def get_hl7_live_data_endpoint(window_seconds: float = 60.0):
+    """
+    Return live numerics streamed from the CARESCAPE Canvas via HL7/MLLP.
+    Parameters in the response: HR, SpO2, MAP, SYS, DIA, RR, TEMP, ETCO2, ICP, CVP.
+    Poll this endpoint at 1-second intervals when the monitor is connected.
+    """
+    return JSONResponse(content=get_live_hl7_data(window_seconds))
+
+
+@router.get("/hl7/status")
+def get_hl7_status():
+    """Return whether any live HL7 data has been received."""
+    return JSONResponse(content={"connected": has_live_hl7_data()})
+
 
 @router.delete("/numerics/clear")
 def clear_vitals_numerics():

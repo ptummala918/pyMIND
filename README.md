@@ -208,6 +208,79 @@ Expected structure:
 - **Time Windows**: 10-second windows that scroll through the data
 - **Refresh Rate**: 1 second intervals with 0.5-second scroll steps
 
+## CARESCAPE Canvas Smart Display — Live HL7 Connection
+
+pyMIND can receive live numeric vitals (HR, SpO₂, MAP, RR, Temp, etc.) directly from a GE CARESCAPE Canvas Smart Display via HL7 v2.x over MLLP (TCP).
+
+### How it works
+
+When the backend starts, it automatically launches an MLLP server on port `6000` that listens for incoming HL7 `ORU^R01` messages from the monitor. Parsed values are stored in a rolling 60-minute buffer and exposed via the `/api/vitals/hl7/live` endpoint.
+
+### Quick-start checklist (do this each session)
+
+**1. Physical connection**
+- Plug an Ethernet cable from the monitor's **MC port** into the Mac (via USB-C → Ethernet adapter if needed)
+- The IX port is disabled — use MC only
+
+**2. Assign a static IP on the Mac**
+- System Settings → Network → select the Ethernet interface
+- Details → TCP/IP → Configure IPv4: Manually
+- IP Address: `172.16.175.81`
+- Subnet Mask: `255.255.255.0`
+- Router: (leave blank) → Apply
+
+**3. Verify the link**
+```bash
+ping 172.16.175.80
+```
+You should get replies. If you do, the physical link is working.
+
+**4. Start pyMIND**
+```bash
+cd /Users/praneeth/pyMIND
+source pyMIND_env/bin/activate
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+You should see:
+```
+[HL7] MLLP server listening on 0.0.0.0:6000
+```
+
+**5. Confirm data is flowing**
+- Watch the terminal for: `[HL7] Connection from ('172.16.175.80', ...)`
+- Or check: `http://127.0.0.1:8000/api/vitals/hl7/status` → `{"connected": true}`
+
+**6. One-time biomedical engineering setup (already done once)**
+The monitor's HL7 destination IP must be set to `172.16.175.81`, port `6000`, TCP/MLLP. This is locked in the monitor's admin/service menu — only biomedical engineering can set it. Once configured it persists, so this only needs to be done once.
+
+### Network details
+
+| Device | IP | Port |
+|---|---|---|
+| CARESCAPE Canvas (MC port) | `172.16.175.80` | — |
+| This Mac (Ethernet) | `172.16.175.81` | — |
+| pyMIND MLLP server | `0.0.0.0` | `6000` |
+| pyMIND API | `0.0.0.0` | `8000` |
+
+### Live data API endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/vitals/hl7/live?window_seconds=60` | Rolling 60-second window of all numeric parameters |
+| `GET /api/vitals/hl7/status` | `{"connected": true/false}` — whether data has been received |
+
+### Parameters received
+
+HR, SpO₂, MAP, SYS, DIA, RR, TEMP, ETCO2, ICP, CVP — matched by both LOINC code and plain-text label from the monitor's OBX segments.
+
+### Troubleshooting
+
+- **Port already in use on startup**: `pkill -9 -f uvicorn` then restart
+- **Ping times out but TCP might still work**: some monitors block ICMP — start the backend and watch for the HL7 connection anyway
+- **No connection after 60 seconds**: biomedical engineering needs to verify the HL7 destination is set correctly on the monitor
+
+---
+
 ## Future Enhancements
 
 - Connect panel functionality for real-time data acquisition

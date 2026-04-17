@@ -1,11 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
 from backend.routes.graphs import router as graph_router
 from backend.routes.vitals import router as vitals_router
 from backend.routes.timestamps import router as timestamps_router
+from backend.services.hl7_service import start_hl7_listener
 
-app = FastAPI(title="pyMIND API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the HL7 listener in the background
+    start_hl7_listener()
+    yield
+
+app = FastAPI(title="pyMIND API", lifespan=lifespan)
 
 # Enable CORS so your frontend (pymind_ui) can talk to FastAPI
 app.add_middleware(
