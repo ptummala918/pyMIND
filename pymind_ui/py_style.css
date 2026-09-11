@@ -399,6 +399,23 @@ main {
   pointer-events: none;
 }
 
+/* Live strip-chart window selector */
+.live-window-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #ccc;
+  font-size: 0.85rem;
+}
+.live-window-label select {
+  background: #333;
+  border: 1px solid #555;
+  color: #eee;
+  border-radius: 4px;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+}
+
 /* Static matplotlib trend PNGs shown in the Trends view */
 .trend-img {
   position: relative;

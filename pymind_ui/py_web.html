@@ -140,6 +140,13 @@
               <div class="monitor-loading" id="vitalsTrendsLoading">Select files to view...</div>
             </div>
             <div class="btn-group">
+              <label class="live-window-label" id="liveWindowWrap" hidden>Window:
+                <select id="liveWindowSelect">
+                  <option value="60">1 min</option>
+                  <option value="300" selected>5 min</option>
+                  <option value="900">15 min</option>
+                </select>
+              </label>
               <button class="btn-small" id="clearVitalsNumericsBtn">Clear</button>
             </div>
           </div>
@@ -2012,6 +2019,159 @@
       return { numerics, window_duration: (hl7 && hl7.window_seconds) || 60.0, data_duration: 0.0 };
     }
 
+    // ---- Live scrolling strip chart (real clock time) ----
+    let liveWindowMs = 300000;      // visible time span (default 5 min)
+    let liveClockOffset = 0;        // Date.now() - server_now, to align to server time
+    let liveRafId = null;
+    // Per-parameter sample buffers: { hr: [{t, v}], spo2: [...], map: [...] }
+    let liveBuffers = { hr: [], spo2: [], map: [] };
+
+    // Fixed physiologic display ranges so the trace doesn't jump around.
+    const LIVE_RANGES = {
+      hr:   { min: 40,  max: 160, label: 'Heart Rate', unit: 'bpm',  color: colors.hr },
+      spo2: { min: 85,  max: 100, label: 'SpO₂',       unit: '%',    color: colors.spo2 },
+      map:  { min: 40,  max: 140, label: 'MAP',        unit: 'mmHg', color: colors.map },
+    };
+
+    function formatClock(ms) {
+      const d = new Date(ms);
+      const p = n => String(n).padStart(2, '0');
+      return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    }
+
+    // Rebuild the buffers from a /hl7/live response (includes pre-connect history).
+    function updateLiveBuffers(hl7) {
+      const src = (hl7 && hl7.numerics) || {};
+      for (const [hk, nk] of Object.entries(HL7_TO_NUMERIC)) {
+        const p = src[hk];
+        if (p && p.t_unix && p.values) {
+          liveBuffers[nk] = p.t_unix.map((ts, i) => ({ t: ts * 1000, v: p.values[i] }));
+        }
+      }
+      if (typeof hl7.server_now === 'number') {
+        liveClockOffset = Date.now() - hl7.server_now * 1000;
+      }
+    }
+
+    // Draw the scrolling strip chart with the right edge at "now" (server-aligned).
+    function renderLiveStripChart(rightNow) {
+      if (!vitalsTrendsCanvas) return;
+      const ctx = vitalsTrendsCanvas.getContext('2d');
+      if (!ctx) return;
+
+      if (vitalsTrendsLoadingDiv) vitalsTrendsLoadingDiv.classList.add('hidden');
+
+      const width = 800, height = 400;
+      const leftPadding = 80, rightPadding = 40, topPadding = 40, bottomPadding = 60;
+      const plotWidth = width - leftPadding - rightPadding;
+      const plotHeight = height - topPadding - bottomPadding;
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.fillStyle = colors.background;
+      ctx.fillRect(0, 0, width, height);
+
+      const windowStart = rightNow - liveWindowMs;
+      const params = Object.keys(LIVE_RANGES).filter(p => liveBuffers[p] && liveBuffers[p].length);
+      const bandCount = Math.max(1, params.length);
+      const bandHeight = plotHeight / bandCount;
+
+      const xOf = t => leftPadding + ((t - windowStart) / liveWindowMs) * plotWidth;
+
+      // Vertical time gridlines
+      ctx.strokeStyle = colors.grid;
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 6; i++) {
+        const x = leftPadding + (plotWidth / 6) * i;
+        ctx.beginPath();
+        ctx.moveTo(x, topPadding);
+        ctx.lineTo(x, topPadding + plotHeight);
+        ctx.stroke();
+      }
+
+      // Axes
+      ctx.strokeStyle = colors.axis;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(leftPadding, topPadding + plotHeight);
+      ctx.lineTo(leftPadding + plotWidth, topPadding + plotHeight);
+      ctx.moveTo(leftPadding, topPadding);
+      ctx.lineTo(leftPadding, topPadding + plotHeight);
+      ctx.stroke();
+
+      params.forEach((p, idx) => {
+        const cfg = LIVE_RANGES[p];
+        const band = liveBuffers[p];
+        const yTop = topPadding + idx * bandHeight;
+        const range = cfg.max - cfg.min || 1;
+        const yOf = v => yTop + bandHeight - ((Math.max(cfg.min, Math.min(cfg.max, v)) - cfg.min) / range) * bandHeight * 0.85 - bandHeight * 0.075;
+
+        // Trace (only points within the visible window, plus one just off the left)
+        ctx.strokeStyle = cfg.color;
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < band.length; i++) {
+          if (band[i].t < windowStart && i + 1 < band.length && band[i + 1].t < windowStart) continue;
+          const x = xOf(band[i].t), y = yOf(band[i].v);
+          if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+        }
+        ctx.stroke();
+
+        // Label + current value
+        const latest = band[band.length - 1].v;
+        ctx.fillStyle = cfg.color;
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${cfg.label}: ${latest.toFixed(0)} ${cfg.unit}`, leftPadding + 5, yTop + 14);
+
+        // Y range ticks
+        ctx.fillStyle = colors.text;
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(String(cfg.max), leftPadding - 5, yTop + 8);
+        ctx.fillText(String(cfg.min), leftPadding - 5, yTop + bandHeight - 8);
+
+        // Band separator
+        if (idx < params.length - 1) {
+          ctx.strokeStyle = colors.grid;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(leftPadding, yTop + bandHeight);
+          ctx.lineTo(leftPadding + plotWidth, yTop + bandHeight);
+          ctx.stroke();
+        }
+      });
+
+      // X-axis clock labels
+      ctx.fillStyle = colors.text;
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      for (let i = 0; i <= 6; i++) {
+        const x = leftPadding + (plotWidth / 6) * i;
+        ctx.fillText(formatClock(windowStart + (liveWindowMs / 6) * i), x, topPadding + plotHeight + 10);
+      }
+      ctx.fillText('Clock time', leftPadding + plotWidth / 2, topPadding + plotHeight + 30);
+
+      if (params.length === 0) {
+        ctx.fillStyle = '#6b7280';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Waiting for live data…', leftPadding + plotWidth / 2, topPadding + plotHeight / 2);
+      }
+    }
+
+    // Animation loop: scroll smoothly using the server-aligned clock.
+    function liveRenderLoop() {
+      if (!liveMode) return;
+      renderLiveStripChart(Date.now() - liveClockOffset);
+      liveRafId = requestAnimationFrame(liveRenderLoop);
+    }
+
     // Update the connect + disconnect status badges together.
     function setConnStatus(state, text) {
       ['vitalsConnStatus', 'vitalsDisconnStatus'].forEach(id => {
@@ -2041,9 +2201,10 @@
 
     async function pollHl7Once() {
       try {
+        const windowSeconds = Math.max(60, liveWindowMs / 1000);
         const [statusRes, liveRes] = await Promise.all([
           fetch(`${API_BASE}/api/vitals/hl7/status`),
-          fetch(`${API_BASE}/api/vitals/hl7/live?window_seconds=60`)
+          fetch(`${API_BASE}/api/vitals/hl7/live?window_seconds=${windowSeconds}`)
         ]);
         const status = await statusRes.json();
         const live = await liveRes.json();
@@ -2057,11 +2218,10 @@
 
         updateLiveReadout(live.numerics || {});
 
-        // Drive the existing numerics chart + threshold panel with live data
+        // Feed the scrolling strip chart and the threshold panel with live data
         if (hasData) {
-          const converted = convertHl7ToNumerics(live);
-          renderVitalsNumerics(converted);
-          updateThresholdMonitor(converted);
+          updateLiveBuffers(live);
+          updateThresholdMonitor(convertHl7ToNumerics(live));
         }
       } catch (err) {
         setConnStatus(null, 'Connection error — is the backend running?');
@@ -2072,21 +2232,39 @@
       if (liveMode) return;
       liveMode = true;
       stopVitalsNumericsAutoRefresh(); // hand the numerics panel to the live stream
+      liveBuffers = { hr: [], spo2: [], map: [] };
       setConnStatus('waiting', 'Connecting…');
       const btn = document.getElementById('vitalsConnectBtn');
       if (btn) btn.textContent = 'Disconnect';
+      const windowWrap = document.getElementById('liveWindowWrap');
+      if (windowWrap) windowWrap.hidden = false;
       pollHl7Once();
       hl7PollInterval = setInterval(pollHl7Once, HL7_POLL_RATE);
+      liveRenderLoop(); // start the smooth scrolling animation
     }
 
     function stopHl7Live() {
       liveMode = false;
       if (hl7PollInterval) { clearInterval(hl7PollInterval); hl7PollInterval = null; }
+      if (liveRafId) { cancelAnimationFrame(liveRafId); liveRafId = null; }
+      liveBuffers = { hr: [], spo2: [], map: [] };
       setConnStatus(null, 'Disconnected');
       const btn = document.getElementById('vitalsConnectBtn');
       if (btn) btn.textContent = 'Connect';
+      const windowWrap = document.getElementById('liveWindowWrap');
+      if (windowWrap) windowWrap.hidden = true;
       const readout = document.getElementById('vitalsLiveReadout');
       if (readout) { readout.hidden = true; readout.innerHTML = ''; }
+    }
+
+    // Live window selector (1 / 5 / 15 min)
+    const liveWindowSelect = document.getElementById('liveWindowSelect');
+    if (liveWindowSelect) {
+      liveWindowMs = parseInt(liveWindowSelect.value, 10) * 1000;
+      liveWindowSelect.onchange = () => {
+        liveWindowMs = parseInt(liveWindowSelect.value, 10) * 1000;
+        if (liveMode) pollHl7Once(); // re-fetch enough history for the new span
+      };
     }
 
     // Wire the Connect / Disconnect controls

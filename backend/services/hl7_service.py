@@ -107,10 +107,16 @@ def get_live_hl7_data(window_seconds: float = 60.0) -> dict:
             ...
           },
           "source": "hl7_live",
-          "window_seconds": 60.0
+          "window_seconds": 60.0,
+          "server_now": 1700000000.0
         }
+
+    Each parameter also carries "t_unix" (absolute UNIX seconds per sample) so a
+    live client can plot against a real clock and scroll continuously; "time"
+    (relative seconds from the window start) is kept for backward compatibility.
     """
-    cutoff = time.time() - window_seconds
+    now = time.time()
+    cutoff = now - window_seconds
     result: dict[str, dict] = {}
 
     with _store_lock:
@@ -123,6 +129,7 @@ def get_live_hl7_data(window_seconds: float = 60.0) -> dict:
             t0 = times[0]
             result[param] = {
                 "time":   [t - t0 for t in times],
+                "t_unix": times,
                 "values": values,
                 "unit":   _live_units.get(param, ""),
                 "latest": values[-1],
@@ -132,6 +139,7 @@ def get_live_hl7_data(window_seconds: float = 60.0) -> dict:
         "numerics":       result,
         "source":         "hl7_live",
         "window_seconds": window_seconds,
+        "server_now":     now,
     }
 
 
