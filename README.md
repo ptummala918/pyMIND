@@ -49,6 +49,7 @@ pyMIND/
 │   │   ├── __init__.py
 │   │   ├── graphs.py           # EEG-related endpoints
 │   │   └── vitals.py           # Vitals-related endpoints
+│   │   └── timestamps.py       # Annotation endpoints
 │   └── services/               # Business logic services
 │       ├── __init__.py
 │       ├── eeg_service.py      # EEG data processing
@@ -59,6 +60,10 @@ pyMIND/
 │   ├── py_web.html            # Main HTML interface
 │   ├── py_style.css           # Styling
 │   └── logo.png               # Brown University logo
+│
+├── tools/                      # Developer/demo utilities
+│   ├── generate_synthetic_data.py  # Make synthetic HDF5 fixtures
+│   └── hl7_sender.py               # Stream synthetic live vitals (HL7/MLLP)
 │
 ├── uploads/                    # Uploaded file storage
 │   ├── EEG/                   # EEG HDF5 files
@@ -124,20 +129,92 @@ The backend will be available at:
 
 Open `pymind_ui/py_web.html` in your web browser. The frontend will communicate with the backend API running on `http://127.0.0.1:8000`.
 
+## Demo Without Hardware
+
+pyMIND ships with two developer tools in `tools/` so the entire application —
+including the **live monitor connection** — can be run and demoed on a laptop
+without an EEG amplifier or a CARESCAPE monitor.
+
+There are two independent data paths; don't confuse them:
+
+| Path | What drives it | Tool |
+|---|---|---|
+| **File playback** (upload a recording, scroll through it) | HDF5 files you upload in the Visualize tab | `generate_synthetic_data.py` |
+| **Live streaming** (real-time monitor feed) | HL7 messages streamed to the backend over the network | `hl7_sender.py` |
+
+### 1. File-playback demo
+
+Generate clean synthetic HDF5 fixtures (5 minutes by default):
+
+```bash
+python tools/generate_synthetic_data.py
+```
+
+This writes three files to `SampleData/Synthetic/`:
+`synthetic_eeg.hdf5`, `synthetic_vitals_waves.hdf5`, `synthetic_vitals_numerics.hdf5`.
+Use `--duration <seconds>` for a different length, or `--outdir <path>` to change
+where they land.
+
+Then, with the backend running, open the frontend, go to **Visualize**, and
+upload each file to its matching slot (EEG / Vitals Waves / Vitals Numerics).
+The **Real Time** tab plays the recording back on a scrolling time axis; the
+**Trends** tab shows static summary plots.
+
+### 2. Live-streaming demo
+
+The live path needs *something* streaming vitals to the backend's MLLP server
+(port `6000`). On a laptop, the synthetic sender stands in for the monitor —
+**it does not need the HDF5 files above**; it generates values on the fly.
+
+In one terminal, start the backend (it opens the MLLP server automatically):
+
+```bash
+uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+In a second terminal, start the sender:
+
+```bash
+python tools/hl7_sender.py
+```
+
+Then in the frontend: **Connect → Vitals → Connect**. Within a second or two the
+status flips from amber "waiting for monitor data" to green **"Connected —
+receiving"**, and the live numeric readout plus the scrolling strip chart (in the
+Visualize tab) come alive. Order doesn't matter — the backend buffers, so you can
+start the sender before or after connecting. Stop the sender with `Ctrl+C`.
+
+Useful sender options: `--interval 0.5` (2 messages/sec), `--count 60` (send 60
+then stop), `--host` / `--port` (target a different machine).
+
 ## API Endpoints
 
 ### EEG Endpoints
 
 - `POST /api/graphs/eeg/upload` - Upload EEG HDF5 file
 - `GET /api/graphs/eeg/live/data?time_offset={float}` - Get live EEG data as JSON (for canvas rendering)
+- `GET /api/graphs/eeg/spectrogram?time_offset={float}&window_duration={float}` - Per-channel spectrogram data
 - `GET /api/graphs/eeg/trend` - Get EEG trend plot as PNG image
+- `DELETE /api/graphs/eeg/clear` - Clear the uploaded EEG file
 
 ### Vitals Endpoints
 
 - `POST /api/vitals/waves/upload` - Upload Vitals Waves HDF5 file
 - `POST /api/vitals/numerics/upload` - Upload Vitals Numerics HDF5 file
-- `GET /api/vitals/live/data?time_offset={float}` - Get live vitals data as JSON (for canvas rendering)
+- `GET /api/vitals/live/data?time_offset={float}` - Get live vitals waveform data as JSON
+- `GET /api/vitals/numerics/data?time_offset={float}` - Get vitals numerics data as JSON
 - `GET /api/vitals/trend` - Get vitals trend plot as PNG image
+- `DELETE /api/vitals/waves/clear` / `DELETE /api/vitals/numerics/clear` - Clear uploaded files
+
+### Live HL7 Endpoints
+
+- `GET /api/vitals/hl7/live?window_seconds={float}` - Rolling window of live numerics (with absolute timestamps)
+- `GET /api/vitals/hl7/status` - `{"connected": true/false}` — whether live data has been received
+
+### Annotation Endpoints
+
+- `GET/POST/PUT/DELETE /api/timestamps/` - Manage annotation timestamps
+- `GET /api/timestamps/export` - Export annotations as a JSON file
 
 ### Root
 
@@ -278,16 +355,24 @@ HR, SpO₂, MAP, SYS, DIA, RR, TEMP, ETCO2, ICP, CVP — matched by both LOINC c
 - **Port already in use on startup**: `pkill -9 -f uvicorn` then restart
 - **Ping times out but TCP might still work**: some monitors block ICMP — start the backend and watch for the HL7 connection anyway
 - **No connection after 60 seconds**: biomedical engineering needs to verify the HL7 destination is set correctly on the monitor
+- **No monitor available (development/demo)**: run `python tools/hl7_sender.py` to stream synthetic vitals to the MLLP server — see [Demo Without Hardware](#demo-without-hardware)
 
 ---
 
+## Recently Added
+
+- Live vitals connection via the Connect panel (CARESCAPE HL7/MLLP)
+- Live scrolling strip chart with a real-time clock axis
+- Threshold monitoring with auto-annotation of breaches
+- Per-channel EEG spectrograms
+- Annotation table with JSON export
+- Synthetic data generator and HL7 sender for hardware-free demos
+
 ## Future Enhancements
 
-- Connect panel functionality for real-time data acquisition
-- Disconnect panel functionality for managing active connections
-- Timestamp table for adding annotations
-- Additional visualization modes
-- Export functionality for graphs and data
-- Session management for multiple users
+- Live EEG and NIRS acquisition (Connect panel currently supports vitals only)
+- Live waveform streaming (HL7 provides numerics only today)
+- Session management for multiple concurrent users
+- Additional visualization modes and data/graph export
 
 **Note**: This is a beta version. Some features may be under active development.
