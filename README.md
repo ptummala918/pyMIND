@@ -53,7 +53,7 @@ pyMIND/
 │       ├── __init__.py
 │       ├── eeg_service.py      # EEG data processing
 │       ├── vitals_service.py   # Vitals data processing
-│       └── utils.py            # Utility functions
+│       └── hl7_service.py      # Live HL7/MLLP monitor ingestion
 │
 ├── pymind_ui/                  # Frontend web interface
 │   ├── py_web.html            # Main HTML interface
@@ -64,7 +64,7 @@ pyMIND/
 │   ├── EEG/                   # EEG HDF5 files
 │   └── Vitals/                # Vitals HDF5 files
 │
-├── pyMINDenv/                  # Python virtual environment
+├── pyMIND_env/                 # Python virtual environment
 ├── requirements.txt            # Python dependencies
 └── README.md                   # This file
 ```
@@ -98,9 +98,9 @@ pyMIND/
 
 2. **Activate the virtual environment:**
    ```bash
-   source pyMINDenv/bin/activate  # On macOS/Linux
+   source pyMIND_env/bin/activate  # On macOS/Linux
    # or
-   pyMINDenv\Scripts\activate     # On Windows
+   pyMIND_env\Scripts\activate     # On Windows
    ```
 
 3. **Install dependencies (if needed):**

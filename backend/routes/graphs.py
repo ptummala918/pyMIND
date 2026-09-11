@@ -9,19 +9,33 @@ router = APIRouter()
 # Store uploaded file paths temporarily (in production, use proper session management)
 uploaded_files = {}
 
+
+def _remove_existing(key: str) -> None:
+    """Delete the temp file previously stored under `key`, if any."""
+    old_path = uploaded_files.get(key)
+    if old_path and os.path.exists(old_path):
+        try:
+            os.remove(old_path)
+        except OSError:
+            pass
+
 @router.post("/eeg/upload")
 async def upload_eeg_file(file: UploadFile = File(...)):
     """Upload an EEG HDF5 file."""
+    # Remove any previously uploaded EEG file so temp files don't accumulate
+    _remove_existing('eeg')
+
     # Save uploaded file temporarily
     suffix = os.path.splitext(file.filename)[1]
+    os.makedirs("uploads/EEG", exist_ok=True)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir="uploads/EEG") as tmp_file:
         content = await file.read()
         tmp_file.write(content)
         file_path = tmp_file.name
-    
+
     # Store file path (in production, use session IDs)
     uploaded_files['eeg'] = file_path
-    
+
     return {"status": "File uploaded successfully", "filename": file.filename}
 
 @router.get("/eeg/trend")

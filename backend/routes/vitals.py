@@ -10,9 +10,20 @@ router = APIRouter()
 # Store uploaded file paths temporarily (in production, use proper session management)
 uploaded_files = {}
 
+
+def _remove_existing(key: str) -> None:
+    """Delete the temp file previously stored under `key`, if any."""
+    old_path = uploaded_files.get(key)
+    if old_path and os.path.exists(old_path):
+        try:
+            os.remove(old_path)
+        except OSError:
+            pass
+
 @router.post("/waves/upload")
 async def upload_vitals_waves_file(file: UploadFile = File(...)):
     """Upload a vitals waves HDF5 file."""
+    _remove_existing('waves')
     # Save uploaded file temporarily
     suffix = os.path.splitext(file.filename)[1]
     os.makedirs("uploads/Vitals", exist_ok=True)
@@ -29,6 +40,7 @@ async def upload_vitals_waves_file(file: UploadFile = File(...)):
 @router.post("/numerics/upload")
 async def upload_vitals_numerics_file(file: UploadFile = File(...)):
     """Upload a vitals numerics HDF5 file."""
+    _remove_existing('numerics')
     # Save uploaded file temporarily
     suffix = os.path.splitext(file.filename)[1]
     os.makedirs("uploads/Vitals", exist_ok=True)

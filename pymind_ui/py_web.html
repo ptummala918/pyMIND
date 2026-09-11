@@ -32,26 +32,33 @@
 
     <!-- Connect Screen -->
     <section id="connectPanel" class="main-panel hidden">
+      <div class="coming-soon-banner">
+        🔌 <strong>Live device connection is coming soon.</strong>
+        For now, upload recorded HDF5 files in the <strong>Visualize</strong> tab.
+      </div>
+
       <div class="directory-select">
         <label for="saveDir">Please choose a save directory</label>
-        <input type="text" id="saveDir" placeholder="Save Directory Location..." />
-        <button class="browse">...</button>
+        <input type="text" id="saveDir" placeholder="Save Directory Location..." disabled />
+        <button class="browse" disabled>...</button>
       </div>
 
       <div class="modules">
-        <div class="module">
+        <div class="module placeholder">
+          <span class="soon-tag">Coming soon</span>
           <h3>EEG</h3>
-          <select><option>BrainVision acti</option></select>
-          <select><option>TCP/IP</option></select>
-          <select><option>HDF5</option></select>
-          <button class="btn-small">Connect</button>
+          <select disabled><option>BrainVision acti</option></select>
+          <select disabled><option>TCP/IP</option></select>
+          <select disabled><option>HDF5</option></select>
+          <button class="btn-small" disabled>Connect</button>
         </div>
 
-        <div class="module">
+        <div class="module placeholder">
+          <span class="soon-tag">Coming soon</span>
           <h3>Vitals</h3>
-          <select><option>Philips Intellivue</option></select>
-          <select><option>Serial</option></select>
-          <select><option>HDF5</option></select>
+          <select disabled><option>Philips Intellivue</option></select>
+          <select disabled><option>Serial</option></select>
+          <select disabled><option>HDF5</option></select>
           <label class="waveform-label">Request Waveforms (5 Max)</label>
           <div class="waveform-list">
             <ul>
@@ -66,7 +73,7 @@
               <li>Intracranial Pressure 2 (IC2)</li>
             </ul>
           </div>
-          <button class="btn-small">Connect</button>
+          <button class="btn-small" disabled>Connect</button>
         </div>
 
         <div class="module disabled">
@@ -81,12 +88,6 @@
       <div class="tab-buttons">
         <button class="tab active">Real Time</button>
         <button class="tab">Trends</button>
-        <button class="tab" id="showGraphsBtn">Test Graphs</button>
-      </div>
-
-      <div class="directory-select">
-        <input type="text" placeholder="Save Directory Location..." />
-        <button class="browse">...</button>
       </div>
 
       <div class="file-upload-section">
@@ -117,6 +118,7 @@
             <h3>EEG Trends</h3>
             <div class="monitor-container" id="eegBox">
               <canvas id="eegCanvas"></canvas>
+              <img id="eegTrendImg" class="trend-img" alt="EEG Trend" hidden />
               <div class="monitor-loading" id="eegLoading">Select files to view...</div>
             </div>
             <div class="btn-group">
@@ -141,7 +143,6 @@
               <div class="monitor-loading" id="vitalsLoading">Select files to view...</div>
             </div>
             <div class="btn-group">
-              <button class="btn-small">Raw Traces</button>
               <button class="btn-small" id="clearVitalsWavesBtn">Clear</button>
             </div>
           </div>
@@ -150,10 +151,10 @@
             <h3>Vitals Trends</h3>
             <div class="monitor-container" id="vitalsTrendsBox">
               <canvas id="vitalsTrendsCanvas"></canvas>
+              <img id="vitalsTrendImg" class="trend-img" alt="Vitals Trend" hidden />
               <div class="monitor-loading" id="vitalsTrendsLoading">Select files to view...</div>
             </div>
             <div class="btn-group">
-              <button class="btn-small">Trends</button>
               <button class="btn-small" id="clearVitalsNumericsBtn">Clear</button>
             </div>
           </div>
@@ -245,9 +246,21 @@
 
     <!-- Disconnect Screen -->
     <section id="disconnectPanel" class="main-panel hidden">
+      <div class="coming-soon-banner">
+        🔌 <strong>Live device management is coming soon.</strong>
+        This panel will disconnect active monitor sessions once live connection is enabled.
+      </div>
       <div class="modules">
-        <div class="module"><h3>EEG</h3><button class="btn-small">Disconnect</button></div>
-        <div class="module"><h3>Vitals</h3><button class="btn-small">Disconnect</button></div>
+        <div class="module placeholder">
+          <span class="soon-tag">Coming soon</span>
+          <h3>EEG</h3>
+          <button class="btn-small" disabled>Disconnect</button>
+        </div>
+        <div class="module placeholder">
+          <span class="soon-tag">Coming soon</span>
+          <h3>Vitals</h3>
+          <button class="btn-small" disabled>Disconnect</button>
+        </div>
         <div class="module disabled"><h3>NIRS</h3><p>Coming Soon</p></div>
       </div>
     </section>
@@ -273,6 +286,11 @@
     let vitalsTimeOffset = 0.0; // Time offset for scrolling through vitals data
     let eegTimeOffset = 0.0; // Time offset for scrolling through EEG data
     let vitalsNumericsTimeOffset = 0.0; // Time offset for scrolling through vitals numerics
+    // Total valid duration (seconds) of each uploaded recording, reported by the
+    // backend, so playback loops over the real data instead of a fixed 3600s.
+    let eegDataDuration = 0.0;
+    let vitalsDataDuration = 0.0;
+    let vitalsNumericsDataDuration = 0.0;
     let vitalsRefreshInterval = null; // Interval for auto-refreshing vitals
     let eegRefreshInterval = null; // Interval for auto-refreshing EEG
     let vitalsNumericsRefreshInterval = null; // Interval for auto-refreshing vitals numerics
@@ -927,8 +945,9 @@
         const response = await fetch(`${base}/api/vitals/live/data?time_offset=${timeOffset}`);
         
         if (!response.ok) throw new Error('Failed to fetch vitals data');
-        
+
         const data = await response.json();
+        vitalsDataDuration = data.data_duration || 0.0;
         renderVitalsMonitor(data);
       } catch (error) {
         console.error('Error updating vitals monitor:', error);
@@ -946,6 +965,7 @@
         if (!response.ok) throw new Error('Failed to fetch vitals numerics data');
 
         const data = await response.json();
+        vitalsNumericsDataDuration = data.data_duration || 0.0;
         renderVitalsNumerics(data);
       } catch (error) {
         console.error('Error updating vitals numerics:', error);
@@ -961,8 +981,9 @@
         const response = await fetch(`${base}/api/graphs/eeg/live/data?time_offset=${timeOffset}`);
         
         if (!response.ok) throw new Error('Failed to fetch EEG data');
-        
+
         const data = await response.json();
+        eegDataDuration = data.data_duration || 0.0;
         renderEEGMonitor(data);
       } catch (error) {
         console.error('Error updating EEG monitor:', error);
@@ -994,9 +1015,10 @@
       eegRefreshInterval = setInterval(() => {
         updateEEGMonitor(eegTimeOffset);
         eegTimeOffset += EEG_SCROLL_STEP;
-        
-        // Reset to beginning after 1 hour (3600 seconds)
-        if (eegTimeOffset > 3600) {
+
+        // Loop back to the start once the window reaches the end of real data
+        const eegLoopEnd = Math.max(0, eegDataDuration - 10.0);
+        if (eegTimeOffset > eegLoopEnd) {
           eegTimeOffset = 0.0;
         }
       }, EEG_REFRESH_RATE);
@@ -1018,8 +1040,9 @@
         updateVitalsMonitor(vitalsTimeOffset);
         vitalsTimeOffset += VITALS_SCROLL_STEP;
 
-        // Reset to beginning after 1 hour (3600 seconds)
-        if (vitalsTimeOffset > 3600) {
+        // Loop back to the start once the window reaches the end of real data
+        const vitalsLoopEnd = Math.max(0, vitalsDataDuration - 10.0);
+        if (vitalsTimeOffset > vitalsLoopEnd) {
           vitalsTimeOffset = 0.0;
         }
       }, VITALS_REFRESH_RATE);
@@ -1049,18 +1072,85 @@
         updateVitalsNumerics(vitalsNumericsTimeOffset);
         vitalsNumericsTimeOffset += VITALS_NUMERICS_SCROLL_STEP;
 
-        // Reset to beginning after 1 hour (3600 seconds)
-        if (vitalsNumericsTimeOffset > 3600) {
+        // Loop back to the start once the window reaches the end of real data
+        const numericsLoopEnd = Math.max(0, vitalsNumericsDataDuration - 60.0);
+        if (vitalsNumericsTimeOffset > numericsLoopEnd) {
           vitalsNumericsTimeOffset = 0.0;
         }
       }, VITALS_NUMERICS_REFRESH_RATE);
     }
 
+    // Show the live canvases and hide the static trend images (Real Time view)
+    function showRealtimeCanvases() {
+      const eegTrendImg = document.getElementById("eegTrendImg");
+      const vitalsTrendImg = document.getElementById("vitalsTrendImg");
+      if (eegTrendImg) eegTrendImg.hidden = true;
+      if (vitalsTrendImg) vitalsTrendImg.hidden = true;
+      if (eegCanvas) eegCanvas.style.display = '';
+      if (vitalsCanvas) vitalsCanvas.style.display = '';
+      if (vitalsTrendsCanvas) vitalsTrendsCanvas.style.display = '';
+    }
+
+    // Fetch a matplotlib trend PNG into an <img> without destroying any canvas.
+    function loadTrendImage(url, imgEl, loadingEl) {
+      if (!imgEl) return;
+      if (loadingEl) {
+        loadingEl.textContent = 'Loading trend...';
+        loadingEl.classList.remove('hidden');
+        loadingEl.style.display = '';
+      }
+      imgEl.hidden = true;
+      fetch(url)
+        .then(response => {
+          if (!response.ok) throw new Error('Network response was not ok');
+          return response.blob();
+        })
+        .then(blob => {
+          if (imgEl.dataset.objectUrl) URL.revokeObjectURL(imgEl.dataset.objectUrl);
+          const imageUrl = URL.createObjectURL(blob);
+          imgEl.dataset.objectUrl = imageUrl;
+          imgEl.src = imageUrl;
+          imgEl.hidden = false;
+          if (loadingEl) loadingEl.classList.add('hidden');
+        })
+        .catch(error => {
+          if (loadingEl) {
+            loadingEl.textContent = `Error loading trend: ${error.message}`;
+            loadingEl.classList.remove('hidden');
+            loadingEl.style.display = '';
+          }
+        });
+    }
+
+    // Show the static trend images and hide the live canvases (Trends view)
+    function showTrendImages(base) {
+      // Hide the live canvases (nodes are preserved, just not displayed)
+      if (eegCanvas) eegCanvas.style.display = 'none';
+      if (vitalsCanvas) vitalsCanvas.style.display = 'none';
+      if (vitalsTrendsCanvas) vitalsTrendsCanvas.style.display = 'none';
+
+      // EEG trend PNG -> EEG box; vitals numerics trend PNG -> Vitals Trends box
+      loadTrendImage(base + "/api/graphs/eeg/trend",
+                     document.getElementById("eegTrendImg"), eegLoadingDiv);
+      loadTrendImage(base + "/api/vitals/trend",
+                     document.getElementById("vitalsTrendImg"), vitalsTrendsLoadingDiv);
+
+      // The waveforms box has no trend view; show an explanatory message.
+      if (vitalsLoadingDiv) {
+        vitalsLoadingDiv.textContent = "Waveform trends unavailable — switch to Real Time.";
+        vitalsLoadingDiv.classList.remove('hidden');
+        vitalsLoadingDiv.style.display = '';
+      }
+    }
+
     // Function to update displayed graphs based on current view
     function updateGraphs() {
       const base = "http://127.0.0.1:8000";
-      
+
       if (currentView === "realtime") {
+        // Restore canvases in case the Trends view hid them
+        showRealtimeCanvases();
+
         // Start auto-refresh for EEG if file is uploaded
         if (uploadedFiles.eeg) {
           startEEGAutoRefresh();
@@ -1092,49 +1182,9 @@
         eegTimeOffset = 0.0;
         vitalsTimeOffset = 0.0;
         vitalsNumericsTimeOffset = 0.0;
-        
-        // Show trend images
-        if (eegCanvas) eegCanvas.style.display = 'none';
-        if (vitalsCanvas) vitalsCanvas.style.display = 'none';
-        if (eegLoadingDiv) eegLoadingDiv.style.display = 'none';
-        if (vitalsLoadingDiv) vitalsLoadingDiv.style.display = 'none';
-        
-        // Load EEG trend image
-        const eegBox = document.getElementById("eegBox");
-        if (eegBox) {
-          eegBox.innerHTML = '<div style="text-align: center; padding: 10px; color: #aaa;">Loading...</div>';
-          fetch(base + "/api/graphs/eeg/trend")
-            .then(response => {
-              if (!response.ok) throw new Error('Network response was not ok');
-              return response.blob();
-            })
-            .then(blob => {
-              const imageUrl = URL.createObjectURL(blob);
-              eegBox.innerHTML = `<img src="${imageUrl}" style="max-width: 100%; height: auto; display: block;" alt="EEG Trend Graph" />`;
-            })
-            .catch(error => {
-              eegBox.innerHTML = `<div style="text-align: center; padding: 10px; color: #ff6b6b;">Error loading image: ${error.message}</div>`;
-            });
-        }
-        
-        // Load vitals trend image
-        const imageContainer = document.getElementById("vitalsImageContainer");
-        if (imageContainer) {
-          imageContainer.style.display = 'block';
-          imageContainer.innerHTML = '<div style="text-align: center; padding: 10px; color: #aaa;">Loading...</div>';
-          fetch(base + "/api/vitals/trend")
-            .then(response => {
-              if (!response.ok) throw new Error('Network response was not ok');
-              return response.blob();
-            })
-            .then(blob => {
-              const imageUrl = URL.createObjectURL(blob);
-              imageContainer.innerHTML = `<img src="${imageUrl}" style="max-width: 100%; height: auto; display: block;" alt="Trend Graph" />`;
-            })
-            .catch(error => {
-              imageContainer.innerHTML = `<div style="text-align: center; padding: 10px; color: #ff6b6b;">Error loading image: ${error.message}</div>`;
-            });
-        }
+
+        // Show static trend PNGs (canvases preserved, just hidden)
+        showTrendImages(base);
       }
     }
 
@@ -1341,9 +1391,6 @@
         } else if (index === 1) {
           // Trends tab
           currentView = "trends";
-          updateGraphs();
-        } else if (index === 2) {
-          // Test Graphs tab - use current view
           updateGraphs();
         }
       };
@@ -1696,6 +1743,7 @@
         if (!response.ok) throw new Error('Failed to fetch vitals numerics data');
 
         const data = await response.json();
+        vitalsNumericsDataDuration = data.data_duration || 0.0;
         renderVitalsNumerics(data);
 
         // Update threshold monitor with the same data

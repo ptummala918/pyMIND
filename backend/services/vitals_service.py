@@ -9,6 +9,35 @@ from fastapi.responses import StreamingResponse
 from typing import Optional
 
 
+# Priority-ordered substring patterns for identifying numeric parameters.
+# The first key matching the earliest pattern wins, so specific labels
+# (e.g. arterial mean) are preferred over generic ones (e.g. any "_mean").
+_NUMERIC_PATTERNS = {
+    'hr':   ['heart rate', 'pulse rate'],
+    'spo2': ['arterial oxigen saturation', 'oxigen saturation',
+             'oxygen saturation', 'spo2'],
+    'map':  ['arterial blood pressure (art)_mean', 'art)_mean',
+             'mean arterial', 'arterial_mean'],
+}
+
+
+def _match_numeric_keys(numerics: dict) -> dict:
+    """
+    Map each canonical parameter ('hr', 'spo2', 'map') to the best-matching
+    dataset key in `numerics`, using priority-ordered substring patterns.
+    Returns a dict that may omit keys with no match.
+    """
+    lowered = {key: key.lower() for key in numerics}
+    resolved = {}
+    for param, patterns in _NUMERIC_PATTERNS.items():
+        for pattern in patterns:
+            match = next((key for key, low in lowered.items() if pattern in low), None)
+            if match:
+                resolved[param] = match
+                break
+    return resolved
+
+
 def read_vitals_waves_hdf5(file_path: str):
     """
     Read vitals waveform data from HDF5 file.
@@ -49,13 +78,20 @@ def get_vitals_live_data(waves_file_path: Optional[str] = None, numerics_file_pa
     Returns dict with waveforms and numeric values.
     """
     window_duration = 10.0  # Show 10 seconds of data at a time
-    
+
     # Read waveforms
     waveforms = {}
+    data_duration = 0.0
     if waves_file_path and os.path.exists(waves_file_path):
         try:
             waves = read_vitals_waves_hdf5(waves_file_path)
-            
+
+            # Total valid duration across all waveforms (for looping playback)
+            for t_full, _v_full in waves.values():
+                t_valid = t_full[t_full != 0]
+                if len(t_valid) > 1:
+                    data_duration = max(data_duration, float(t_valid[-1] - t_valid[0]))
+
             # Find available waveforms
             ecg_key = None
             abp_key = None
@@ -149,7 +185,8 @@ def get_vitals_live_data(waves_file_path: Optional[str] = None, numerics_file_pa
         'waveforms': waveforms,
         'waveforms_series': waveforms_series,
         'time_offset': time_offset,
-        'window_duration': window_duration
+        'window_duration': window_duration,
+        'data_duration': data_duration
     }
 
 
@@ -160,24 +197,23 @@ def get_vitals_numerics_data(numerics_file_path: Optional[str] = None, time_offs
     """
     window_duration = 60.0  # Show 60 seconds of data at a time
     numerics_series = {}
+    data_duration = 0.0
 
     if numerics_file_path and os.path.exists(numerics_file_path):
         try:
             numerics = read_vitals_numerics_hdf5(numerics_file_path)
 
-            # Find HR, SpO2, and MAP
-            hr_key = None
-            spo2_key = None
-            map_key = None
+            # Total valid duration across all numerics (for looping playback)
+            for t_full, v_full in numerics.values():
+                t_valid = t_full[v_full != 0]
+                if len(t_valid) > 1:
+                    data_duration = max(data_duration, float(t_valid[-1] - t_valid[0]))
 
-            for key in numerics.keys():
-                key_lower = key.lower()
-                if 'heart rate' in key_lower or 'hr' in key_lower:
-                    hr_key = key
-                if 'spo2' in key_lower or 'oxigen saturation' in key_lower or 'arterial oxigen' in key_lower:
-                    spo2_key = key
-                if 'map' in key_lower or 'mean' in key_lower:
-                    map_key = key
+            # Find HR, SpO2, and MAP via priority-ordered matching
+            resolved = _match_numeric_keys(numerics)
+            hr_key = resolved.get('hr')
+            spo2_key = resolved.get('spo2')
+            map_key = resolved.get('map')
 
             # Get HR data
             if hr_key:
@@ -252,7 +288,8 @@ def get_vitals_numerics_data(numerics_file_path: Optional[str] = None, time_offs
     return {
         'numerics': numerics_series,
         'time_offset': time_offset,
-        'window_duration': window_duration
+        'window_duration': window_duration,
+        'data_duration': data_duration
     }
 
 
@@ -263,20 +300,13 @@ def generate_vitals_trend_plot(numerics_file_path: Optional[str] = None):
     if numerics_file_path and os.path.exists(numerics_file_path):
         try:
             numerics = read_vitals_numerics_hdf5(numerics_file_path)
-            
-            # Find HR, SpO2, and MAP
-            hr_key = None
-            spo2_key = None
-            map_key = None
-            
-            for key in numerics.keys():
-                if 'Heart Rate' in key or 'HR' in key:
-                    hr_key = key
-                if 'SpO2' in key or 'Oxigen Saturation' in key or 'Arterial Oxigen' in key:
-                    spo2_key = key
-                if 'MAP' in key or 'MEAN' in key:
-                    map_key = key
-            
+
+            # Find HR, SpO2, and MAP via priority-ordered matching
+            resolved = _match_numeric_keys(numerics)
+            hr_key = resolved.get('hr')
+            spo2_key = resolved.get('spo2')
+            map_key = resolved.get('map')
+
             # Get data
             if hr_key:
                 time_hr, hr = numerics[hr_key]

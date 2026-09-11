@@ -29,14 +29,13 @@ _live_units:    dict[str, str]   = {}   # param_key -> unit string
 # plain text labels in OBX-3.2 (the text component).  We match on both.
 _OBX_ID_MAP: dict[str, str] = {
     # ---- Heart Rate ----
-    "59408-5":  "HR",   # LOINC pulse ox heart rate
     "8867-4":   "HR",   # LOINC heart rate
     "HR":       "HR",
     "HEART RATE": "HR",
     "PULSE":    "HR",
     # ---- SpO2 ----
-    "2708-6":   "SpO2", # LOINC oxygen saturation arterial
-    "59408-5":  "SpO2", # (some monitors reuse for SpO2)
+    "2708-6":   "SpO2", # LOINC oxygen saturation in arterial blood
+    "59408-5":  "SpO2", # LOINC oxygen saturation by pulse oximetry
     "SPO2":     "SpO2",
     "SP02":     "SpO2",
     "OXYGEN SATURATION": "SpO2",
@@ -300,3 +299,170 @@ def start_hl7_listener(host: str = "0.0.0.0", port: int = 6000) -> None:
         daemon=True,
     )
     t.start()
+
+
+# ---------------------------------------------------------------------------
+# UDP listener — sniffs for CARESCAPE vitals broadcasts on common ports
+# ---------------------------------------------------------------------------
+
+# Common GE CARESCAPE UDP ports to probe
+_UDP_PROBE_PORTS = [
+    7000, 8060, 8000, 9000, 5000, 5100, 5500, 6000,
+    2575, 2576, 3001, 3002, 4000, 4001, 4100, 4500,
+    6001, 6002, 6100, 7001, 7002, 7100, 8001, 8002,
+    8080, 8443, 9001, 9100, 9200, 10000, 11000, 12000,
+]
+
+# Once the real port is discovered it's stored here
+_udp_active_port: int | None = None
+
+
+def _parse_carescape_binary(data: bytes, ts: float) -> None:
+    """Parse port 7000 discovery packet — device heartbeat, not vitals."""
+    if len(data) < 44:
+        return
+
+    # Bytes 5-8: device IP
+    device_ip = f"{data[4]}.{data[5]}.{data[6]}.{data[7]}"
+    
+    # Bytes 13-25: location
+    location = data[12:25].rstrip(b"\x00").decode("ascii", errors="ignore")
+    
+    # Bytes 29-41: patient name if admitted
+    patient = data[28:41].rstrip(b"\x00").decode("ascii", errors="ignore")
+
+    print(f"[UDP-DISCOVERY] device={device_ip} location={location} patient={patient or 'none'}")
+
+
+def _handle_udp_packet(data: bytes, addr: tuple, port: int) -> None:
+    """Process one UDP packet — CARESCAPE binary, HL7 text, or raw hex dump."""
+    global _udp_active_port
+    src_ip, src_port = addr
+    ts = time.time()
+
+    print(f"\n[UDP] Packet from {src_ip}:{src_port} on port {port} ({len(data)} bytes)")
+
+    # CARESCAPE binary format (port 7000, starts with 0x01 0x04)
+    if len(data) >= 44 and data[0] == 0x01 and data[1] == 0x04:
+        _udp_active_port = port
+        print(f"[UDP] Raw hex: {data.hex()}")
+        _parse_carescape_binary(data, ts)
+        return
+
+    # Try UTF-8 text (may be HL7)
+    try:
+        text = data.decode("utf-8")
+        print(f"[UDP] Text: {text[:200]}")
+
+        if text.startswith("MSH"):
+            try:
+                msg = parse_message(text, find_groups=False)
+                print(f"[UDP] HL7 message type: {msg.msh.msh_9.value}")
+                _udp_active_port = port
+                if hasattr(msg, "obx"):
+                    for obx in msg.obx:
+                        try:
+                            obs_id   = obx.obx_3.ce_1.value
+                            obs_text = obx.obx_3.ce_2.value
+                            obs_val  = obx.obx_5.value
+                            obs_unit = obx.obx_6.ce_1.value
+                            param_key = _resolve_param_key(obs_id, obs_text)
+                            if param_key:
+                                _record(param_key, float(obs_val), obs_unit, ts)
+                                print(f"[UDP]   {param_key}: {obs_val} {obs_unit}")
+                        except Exception:
+                            continue
+            except HL7apyException:
+                print("[UDP] Looks like HL7 but failed to parse")
+    except UnicodeDecodeError:
+        print(f"[UDP] Binary data (hex): {data[:64].hex()}")
+
+
+def _udp_probe_listener(port: int) -> None:
+    """Listen on a single UDP port and print anything that arrives."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.bind(("0.0.0.0", port))
+        print(f"[UDP] Listening on port {port}")
+        while True:
+            data, addr = sock.recvfrom(65535)
+            _handle_udp_packet(data, addr, port)
+    except OSError as e:
+        print(f"[UDP] Could not bind port {port}: {e}")
+
+
+def start_udp_probe() -> None:
+    """Launch UDP listeners on all common CARESCAPE ports simultaneously."""
+    print(f"[UDP] Starting probe listeners on ports: {_UDP_PROBE_PORTS}")
+    for port in _UDP_PROBE_PORTS:
+        t = threading.Thread(
+            target=_udp_probe_listener,
+            args=(port,),
+            name=f"UDPProbe-{port}",
+            daemon=True,
+        )
+        t.start()
+
+
+# ---------------------------------------------------------------------------
+# TCP probe — catch any non-MLLP TCP streams from the monitor
+# ---------------------------------------------------------------------------
+
+_TCP_PROBE_PORTS = [
+    2575, 2576, 3001, 3002, 4000, 4001, 4500,
+    5000, 5100, 7001, 7002, 8060, 8080, 9000, 9100,
+]
+
+
+def _tcp_probe_client(conn: socket.socket, addr: tuple, port: int) -> None:
+    """Print raw data from any TCP connection on a probe port."""
+    print(f"[TCP-PROBE] Connection from {addr} on port {port}")
+    try:
+        while True:
+            data = conn.recv(4096)
+            if not data:
+                break
+            print(f"[TCP-PROBE] port={port} from={addr} len={len(data)}")
+            try:
+                print(f"[TCP-PROBE] Text: {data.decode('utf-8')[:200]}")
+            except UnicodeDecodeError:
+                print(f"[TCP-PROBE] Hex: {data[:64].hex()}")
+    except Exception as e:
+        print(f"[TCP-PROBE] Error on port {port}: {e}")
+    finally:
+        conn.close()
+
+
+def _tcp_probe_listener(port: int) -> None:
+    """Listen for TCP connections on a single probe port."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("0.0.0.0", port))
+        sock.listen(5)
+        print(f"[TCP-PROBE] Listening on port {port}")
+        while True:
+            conn, addr = sock.accept()
+            t = threading.Thread(
+                target=_tcp_probe_client,
+                args=(conn, addr, port),
+                daemon=True,
+            )
+            t.start()
+    except OSError as e:
+        print(f"[TCP-PROBE] Could not bind port {port}: {e}")
+
+
+def start_tcp_probe() -> None:
+    """Launch TCP listeners on all common CARESCAPE ports."""
+    print(f"[TCP-PROBE] Starting probe listeners on ports: {_TCP_PROBE_PORTS}")
+    for port in _TCP_PROBE_PORTS:
+        t = threading.Thread(
+            target=_tcp_probe_listener,
+            args=(port,),
+            name=f"TCPProbe-{port}",
+            daemon=True,
+        )
+        t.start()

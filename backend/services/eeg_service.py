@@ -167,17 +167,19 @@ def get_eeg_live_data(file_path: Optional[str] = None, time_offset: float = 0.0)
     Returns dict with channel data.
     """
     window_duration = 10.0  # Show 10 seconds of data at a time
-    
+
     channels = {}
+    data_duration = 0.0
     if file_path and os.path.exists(file_path):
         try:
             time, data = read_eeg_hdf5(file_path)
-            
+
             # Remove zeros and invalid data
             valid_mask = time != 0
             time_valid = time[valid_mask]
-            
+
             if len(time_valid) > 1:
+                data_duration = float(time_valid[-1] - time_valid[0])
                 # Get window of data around time_offset
                 start_time = max(time_valid[0], time_valid[0] + time_offset)
                 end_time = min(time_valid[-1], start_time + window_duration)
@@ -201,7 +203,8 @@ def get_eeg_live_data(file_path: Optional[str] = None, time_offset: float = 0.0)
     return {
         'channels': channels,
         'time_offset': time_offset,
-        'window_duration': window_duration
+        'window_duration': window_duration,
+        'data_duration': data_duration
     }
 
 
