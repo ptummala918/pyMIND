@@ -1,3 +1,16 @@
+# Data files
 *.hdf5
 pymind_demos/
 SampleData/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+pyMIND_env/
+venv/
+.venv/
+
+# macOS
+.DS_Store
