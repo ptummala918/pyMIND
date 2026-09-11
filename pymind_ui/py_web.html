@@ -33,14 +33,9 @@
     <!-- Connect Screen -->
     <section id="connectPanel" class="main-panel hidden">
       <div class="coming-soon-banner">
-        🔌 <strong>Live device connection is coming soon.</strong>
-        For now, upload recorded HDF5 files in the <strong>Visualize</strong> tab.
-      </div>
-
-      <div class="directory-select">
-        <label for="saveDir">Please choose a save directory</label>
-        <input type="text" id="saveDir" placeholder="Save Directory Location..." disabled />
-        <button class="browse" disabled>...</button>
+        🔌 <strong>Live vitals streaming is available.</strong>
+        Connect to a CARESCAPE monitor (HL7/MLLP) below, then open the
+        <strong>Visualize</strong> tab to watch numerics and thresholds update live.
       </div>
 
       <div class="modules">
@@ -53,27 +48,17 @@
           <button class="btn-small" disabled>Connect</button>
         </div>
 
-        <div class="module placeholder">
-          <span class="soon-tag">Coming soon</span>
+        <div class="module" id="vitalsConnectModule">
           <h3>Vitals</h3>
-          <select disabled><option>Philips Intellivue</option></select>
-          <select disabled><option>Serial</option></select>
-          <select disabled><option>HDF5</option></select>
-          <label class="waveform-label">Request Waveforms (5 Max)</label>
-          <div class="waveform-list">
-            <ul>
-              <li>Arterial Blood Pressure (ABP)</li>
-              <li>PLETH wave label</li>
-              <li>Impedance RESP wave</li>
-              <li>ECG Lead I</li>
-              <li>ECG Lead II</li>
-              <li>ECG Lead III</li>
-              <li>ECG Lead AVR</li>
-              <li>Intracranial Pressure (ICP)</li>
-              <li>Intracranial Pressure 2 (IC2)</li>
-            </ul>
+          <select id="vitalsSource">
+            <option value="hl7">CARESCAPE (HL7/MLLP)</option>
+          </select>
+          <div class="conn-status" id="vitalsConnStatus">
+            <span class="conn-dot"></span>
+            <span class="conn-text">Disconnected</span>
           </div>
-          <button class="btn-small" disabled>Connect</button>
+          <div class="live-readout" id="vitalsLiveReadout" hidden></div>
+          <button class="btn-small" id="vitalsConnectBtn">Connect</button>
         </div>
 
         <div class="module disabled">
@@ -247,8 +232,8 @@
     <!-- Disconnect Screen -->
     <section id="disconnectPanel" class="main-panel hidden">
       <div class="coming-soon-banner">
-        🔌 <strong>Live device management is coming soon.</strong>
-        This panel will disconnect active monitor sessions once live connection is enabled.
+        🔌 Disconnect an active live monitor session here.
+        EEG and NIRS live management are coming soon.
       </div>
       <div class="modules">
         <div class="module placeholder">
@@ -256,10 +241,13 @@
           <h3>EEG</h3>
           <button class="btn-small" disabled>Disconnect</button>
         </div>
-        <div class="module placeholder">
-          <span class="soon-tag">Coming soon</span>
+        <div class="module">
           <h3>Vitals</h3>
-          <button class="btn-small" disabled>Disconnect</button>
+          <div class="conn-status" id="vitalsDisconnStatus">
+            <span class="conn-dot"></span>
+            <span class="conn-text">Disconnected</span>
+          </div>
+          <button class="btn-small" id="vitalsDisconnectBtn">Disconnect</button>
         </div>
         <div class="module disabled"><h3>NIRS</h3><p>Coming Soon</p></div>
       </div>
@@ -291,6 +279,7 @@
     let eegDataDuration = 0.0;
     let vitalsDataDuration = 0.0;
     let vitalsNumericsDataDuration = 0.0;
+    let liveMode = false; // true while streaming live HL7 numerics (file numerics paused)
     let vitalsRefreshInterval = null; // Interval for auto-refreshing vitals
     let eegRefreshInterval = null; // Interval for auto-refreshing EEG
     let vitalsNumericsRefreshInterval = null; // Interval for auto-refreshing vitals numerics
@@ -1058,6 +1047,7 @@
 
     // Function to start auto-refresh for vitals numerics monitor
     function startVitalsNumericsAutoRefresh() {
+      if (liveMode) return; // live HL7 stream owns the numerics panel
       stopVitalsNumericsAutoRefresh(); // Clear any existing interval
 
       // Reset time offset when starting
@@ -1168,9 +1158,10 @@
         }
 
         // Start auto-refresh for vitals numerics if numerics file is uploaded
-        if (uploadedFiles.vitalsNumerics) {
+        // (skipped while a live HL7 stream is driving the numerics panel)
+        if (uploadedFiles.vitalsNumerics && !liveMode) {
           startVitalsNumericsAutoRefresh();
-        } else {
+        } else if (!liveMode) {
           stopVitalsNumericsAutoRefresh();
           vitalsNumericsTimeOffset = 0.0;
         }
@@ -1994,6 +1985,119 @@
         startEEGAutoRefresh();
       }
     };
+
+    // =====================
+    // LIVE HL7 (CARESCAPE) STREAMING
+    // =====================
+
+    const HL7_POLL_RATE = 1000; // poll /hl7/live once per second
+    let hl7PollInterval = null;
+
+    // HL7 uppercase keys -> the hr/spo2/map keys the numerics chart + threshold
+    // panel already understand.
+    const HL7_TO_NUMERIC = { HR: 'hr', SpO2: 'spo2', MAP: 'map' };
+    const NUMERIC_LABELS = { hr: 'Heart Rate', spo2: 'SpO₂', map: 'MAP' };
+
+    // Convert the /hl7/live response into the shape renderVitalsNumerics and
+    // updateThresholdMonitor expect.
+    function convertHl7ToNumerics(hl7) {
+      const numerics = {};
+      const src = (hl7 && hl7.numerics) || {};
+      for (const [hk, nk] of Object.entries(HL7_TO_NUMERIC)) {
+        const p = src[hk];
+        if (p && p.values && p.values.length) {
+          numerics[nk] = { time: p.time, values: p.values, label: NUMERIC_LABELS[nk], unit: p.unit };
+        }
+      }
+      return { numerics, window_duration: (hl7 && hl7.window_seconds) || 60.0, data_duration: 0.0 };
+    }
+
+    // Update the connect + disconnect status badges together.
+    function setConnStatus(state, text) {
+      ['vitalsConnStatus', 'vitalsDisconnStatus'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('waiting', 'connected');
+        if (state) el.classList.add(state);
+        const t = el.querySelector('.conn-text');
+        if (t) t.textContent = text;
+      });
+    }
+
+    // Update the live numeric readout in the Connect panel.
+    function updateLiveReadout(hl7Numerics) {
+      const el = document.getElementById('vitalsLiveReadout');
+      if (!el) return;
+      const order = ['HR', 'SpO2', 'MAP', 'SYS', 'DIA', 'RR', 'TEMP'];
+      const items = order.filter(k => hl7Numerics[k]).map(k => {
+        const p = hl7Numerics[k];
+        const v = (p.latest !== undefined ? p.latest : p.values[p.values.length - 1]);
+        return `<div class="lr-item"><span class="lr-label">${k}</span>` +
+               `<span class="lr-value">${v.toFixed(1)} ${p.unit || ''}</span></div>`;
+      });
+      if (items.length) { el.innerHTML = items.join(''); el.hidden = false; }
+      else { el.hidden = true; }
+    }
+
+    async function pollHl7Once() {
+      try {
+        const [statusRes, liveRes] = await Promise.all([
+          fetch(`${API_BASE}/api/vitals/hl7/status`),
+          fetch(`${API_BASE}/api/vitals/hl7/live?window_seconds=60`)
+        ]);
+        const status = await statusRes.json();
+        const live = await liveRes.json();
+        const hasData = live.numerics && Object.keys(live.numerics).length > 0;
+
+        if (status.connected && hasData) {
+          setConnStatus('connected', 'Connected — receiving');
+        } else {
+          setConnStatus('waiting', 'Connected — waiting for monitor data…');
+        }
+
+        updateLiveReadout(live.numerics || {});
+
+        // Drive the existing numerics chart + threshold panel with live data
+        if (hasData) {
+          const converted = convertHl7ToNumerics(live);
+          renderVitalsNumerics(converted);
+          updateThresholdMonitor(converted);
+        }
+      } catch (err) {
+        setConnStatus(null, 'Connection error — is the backend running?');
+      }
+    }
+
+    function startHl7Live() {
+      if (liveMode) return;
+      liveMode = true;
+      stopVitalsNumericsAutoRefresh(); // hand the numerics panel to the live stream
+      setConnStatus('waiting', 'Connecting…');
+      const btn = document.getElementById('vitalsConnectBtn');
+      if (btn) btn.textContent = 'Disconnect';
+      pollHl7Once();
+      hl7PollInterval = setInterval(pollHl7Once, HL7_POLL_RATE);
+    }
+
+    function stopHl7Live() {
+      liveMode = false;
+      if (hl7PollInterval) { clearInterval(hl7PollInterval); hl7PollInterval = null; }
+      setConnStatus(null, 'Disconnected');
+      const btn = document.getElementById('vitalsConnectBtn');
+      if (btn) btn.textContent = 'Connect';
+      const readout = document.getElementById('vitalsLiveReadout');
+      if (readout) { readout.hidden = true; readout.innerHTML = ''; }
+    }
+
+    // Wire the Connect / Disconnect controls
+    const vitalsConnectBtn = document.getElementById('vitalsConnectBtn');
+    if (vitalsConnectBtn) {
+      vitalsConnectBtn.onclick = () => { liveMode ? stopHl7Live() : startHl7Live(); };
+    }
+    const vitalsDisconnectBtn = document.getElementById('vitalsDisconnectBtn');
+    if (vitalsDisconnectBtn) {
+      vitalsDisconnectBtn.onclick = () => stopHl7Live();
+    }
 
   </script>
 </body>
