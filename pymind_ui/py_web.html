@@ -382,6 +382,14 @@
       marker: '#cc0000'
     };
     
+    // Format elapsed recording time (seconds) as m:ss for scrolling time axes.
+    function formatElapsed(sec) {
+      const s = Math.max(0, Math.floor(sec));
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return `${m}:${String(r).padStart(2, '0')}`;
+    }
+
     // Function to render scientific multi-series chart for vitals
     function renderVitalsMonitor(data) {
       if (!vitalsCanvas) return;
@@ -548,10 +556,10 @@
       ctx.textBaseline = 'top';
       for (let i = 0; i <= 10; i++) {
         const x = leftPadding + (plotWidth / 10) * i;
-        const timeValue = (i / 10) * windowDuration;
-        ctx.fillText(timeValue.toFixed(1), x, topPadding + plotHeight + 10);
+        const timeValue = (data.time_offset || 0) + (i / 10) * windowDuration;
+        ctx.fillText(formatElapsed(timeValue), x, topPadding + plotHeight + 10);
       }
-      ctx.fillText('Time (s)', leftPadding + plotWidth / 2, topPadding + plotHeight + 30);
+      ctx.fillText('Recording time (m:ss)', leftPadding + plotWidth / 2, topPadding + plotHeight + 30);
       
       // Draw Y-axis labels (left)
       if (leftVitals.length > 0) {
@@ -771,10 +779,10 @@
       ctx.textBaseline = 'top';
       for (let i = 0; i <= 10; i++) {
         const x = leftPadding + (plotWidth / 10) * i;
-        const timeValue = (i / 10) * windowDuration;
-        ctx.fillText(timeValue.toFixed(1), x, topPadding + plotHeight + 10);
+        const timeValue = (data.time_offset || 0) + (i / 10) * windowDuration;
+        ctx.fillText(formatElapsed(timeValue), x, topPadding + plotHeight + 10);
       }
-      ctx.fillText('Time (s)', leftPadding + plotWidth / 2, topPadding + plotHeight + 30);
+      ctx.fillText('Recording time (m:ss)', leftPadding + plotWidth / 2, topPadding + plotHeight + 30);
     }
 
     // Function to render EEG chart
@@ -928,10 +936,10 @@
       ctx.textBaseline = 'top';
       for (let i = 0; i <= 10; i++) {
         const x = leftPadding + (plotWidth / 10) * i;
-        const timeValue = (i / 10) * windowDuration;
-        ctx.fillText(timeValue.toFixed(1), x, topPadding + plotHeight + 10);
+        const timeValue = (data.time_offset || 0) + (i / 10) * windowDuration;
+        ctx.fillText(formatElapsed(timeValue), x, topPadding + plotHeight + 10);
       }
-      ctx.fillText('Time (s)', leftPadding + plotWidth / 2, topPadding + plotHeight + 30);
+      ctx.fillText('Recording time (m:ss)', leftPadding + plotWidth / 2, topPadding + plotHeight + 30);
     }
     
     // Function to fetch and render vitals data
